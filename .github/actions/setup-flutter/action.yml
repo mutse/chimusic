@@ -1,0 +1,130 @@
+name: Setup Flutter
+description: Install a pinned Flutter SDK from the official Flutter archive.
+
+inputs:
+  flutter-version:
+    description: Flutter SDK version to install.
+    required: true
+  channel:
+    description: Flutter release channel.
+    default: stable
+    required: false
+  storage-base-url:
+    description: Base URL for Flutter SDK archives.
+    default: https://storage.googleapis.com
+    required: false
+  pub-hosted-url:
+    description: Optional Pub package host.
+    default: ""
+    required: false
+
+runs:
+  using: composite
+  steps:
+    - name: Compute Flutter archive metadata
+      id: vars
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        os="${RUNNER_OS}"
+        arch="$(uname -m)"
+
+        case "$os" in
+          Linux)
+            platform_dir="linux"
+            archive_name="flutter_linux_${{ inputs.flutter-version }}-${{ inputs.channel }}.tar.xz"
+            ;;
+          macOS)
+            platform_dir="macos"
+            case "$arch" in
+              arm64|aarch64)
+                archive_name="flutter_macos_arm64_${{ inputs.flutter-version }}-${{ inputs.channel }}.zip"
+                ;;
+              x86_64)
+                archive_name="flutter_macos_${{ inputs.flutter-version }}-${{ inputs.channel }}.zip"
+                ;;
+              *)
+                echo "Unsupported macOS architecture: $arch" >&2
+                exit 1
+                ;;
+            esac
+            ;;
+          *)
+            echo "Unsupported runner OS: $os" >&2
+            exit 1
+            ;;
+        esac
+
+        cache_root="$RUNNER_TEMP/flutter-sdk/${{ inputs.channel }}/${{ inputs.flutter-version }}/${os}-${arch}"
+        flutter_root="$cache_root/flutter"
+        archive_url="${{ inputs.storage-base-url }}/flutter_infra_release/releases/${{ inputs.channel }}/${platform_dir}/${archive_name}"
+
+        {
+          echo "archive-name=$archive_name"
+          echo "archive-url=$archive_url"
+          echo "cache-root=$cache_root"
+          echo "flutter-root=$flutter_root"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Restore Flutter SDK cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ steps.vars.outputs.cache-root }}
+        key: flutter-sdk-${{ runner.os }}-${{ runner.arch }}-${{ inputs.channel }}-${{ inputs.flutter-version }}
+
+    - name: Configure Flutter package hosts
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        echo "FLUTTER_STORAGE_BASE_URL=${{ inputs.storage-base-url }}" >> "$GITHUB_ENV"
+
+        if [ -n "${{ inputs.pub-hosted-url }}" ]; then
+          echo "PUB_HOSTED_URL=${{ inputs.pub-hosted-url }}" >> "$GITHUB_ENV"
+        fi
+
+    - name: Download Flutter SDK
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        flutter_root="${{ steps.vars.outputs.flutter-root }}"
+        cache_root="${{ steps.vars.outputs.cache-root }}"
+        archive_path="$RUNNER_TEMP/${{ steps.vars.outputs.archive-name }}"
+
+        if [ -x "$flutter_root/bin/flutter" ]; then
+          exit 0
+        fi
+
+        rm -rf "$cache_root"
+        mkdir -p "$cache_root"
+
+        curl --fail --location --retry 5 --retry-all-errors --connect-timeout 20 --show-error \
+          "${{ steps.vars.outputs.archive-url }}" \
+          -o "$archive_path"
+
+        case "$archive_path" in
+          *.tar.xz)
+            tar -xJf "$archive_path" -C "$cache_root"
+            ;;
+          *.zip)
+            unzip -q "$archive_path" -d "$cache_root"
+            ;;
+          *)
+            echo "Unsupported archive format: $archive_path" >&2
+            exit 1
+            ;;
+        esac
+
+    - name: Add Flutter to PATH
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "${{ steps.vars.outputs.flutter-root }}/bin" >> "$GITHUB_PATH"
+
+    - name: Verify Flutter SDK
+      shell: bash
+      run: |
+        set -euo pipefail
+        "${{ steps.vars.outputs.flutter-root }}/bin/flutter" --version

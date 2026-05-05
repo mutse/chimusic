@@ -17,6 +17,7 @@ permissions:
 
 env:
   FLUTTER_VERSION: 3.41.4
+  FLUTTER_CHANNEL: stable
 
 jobs:
   quality:
@@ -29,11 +30,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+        uses: ./.github/actions/setup-flutter
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
-          cache: true
+          channel: ${{ env.FLUTTER_CHANNEL }}
 
       - name: Install dependencies
         run: flutter pub get
@@ -62,11 +62,10 @@ jobs:
           cache: gradle
 
       - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+        uses: ./.github/actions/setup-flutter
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
-          cache: true
+          channel: ${{ env.FLUTTER_CHANNEL }}
 
       - name: Install dependencies
         run: flutter pub get
@@ -104,11 +103,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+        uses: ./.github/actions/setup-flutter
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
-          cache: true
+          channel: ${{ env.FLUTTER_CHANNEL }}
 
       - name: Install dependencies
         run: flutter pub get
