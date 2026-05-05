@@ -16,49 +16,85 @@ extension MusicTabX on MusicTab {
   };
 }
 
-enum LibraryFilter { all, playlists, albums, downloads }
+enum LibraryFilter { all, tracks, folders, favorites }
 
 extension LibraryFilterX on LibraryFilter {
   String get label => switch (this) {
     LibraryFilter.all => 'All',
-    LibraryFilter.playlists => 'Playlists',
-    LibraryFilter.albums => 'Albums',
-    LibraryFilter.downloads => 'Downloads',
+    LibraryFilter.tracks => 'Tracks',
+    LibraryFilter.folders => 'Folders',
+    LibraryFilter.favorites => 'Favorites',
   };
 }
 
-enum MusicCollectionKind { playlist, album, mix }
+enum MusicCollectionKind { playlist, folder }
 
 extension MusicCollectionKindX on MusicCollectionKind {
   String get label => switch (this) {
     MusicCollectionKind.playlist => 'Playlist',
-    MusicCollectionKind.album => 'Album',
-    MusicCollectionKind.mix => 'Mix',
+    MusicCollectionKind.folder => 'Folder',
   };
 }
 
 class Track {
   const Track({
     required this.id,
+    required this.filePath,
+    required this.fileName,
+    required this.folderPath,
     required this.title,
     required this.artist,
     required this.album,
-    required this.duration,
     required this.palette,
-    required this.moodTag,
-    this.lyricLine,
-    this.explicit = false,
+    required this.importedAt,
+    this.duration,
+    this.fileExtension,
   });
 
   final String id;
+  final String filePath;
+  final String fileName;
+  final String folderPath;
   final String title;
   final String artist;
   final String album;
-  final Duration duration;
   final List<Color> palette;
-  final String moodTag;
-  final String? lyricLine;
-  final bool explicit;
+  final DateTime importedAt;
+  final Duration? duration;
+  final String? fileExtension;
+
+  String get typeLabel => (fileExtension == null || fileExtension!.isEmpty)
+      ? 'Local Audio'
+      : fileExtension!.toUpperCase();
+
+  Track copyWith({
+    String? id,
+    String? filePath,
+    String? fileName,
+    String? folderPath,
+    String? title,
+    String? artist,
+    String? album,
+    List<Color>? palette,
+    DateTime? importedAt,
+    Duration? duration,
+    bool clearDuration = false,
+    String? fileExtension,
+  }) {
+    return Track(
+      id: id ?? this.id,
+      filePath: filePath ?? this.filePath,
+      fileName: fileName ?? this.fileName,
+      folderPath: folderPath ?? this.folderPath,
+      title: title ?? this.title,
+      artist: artist ?? this.artist,
+      album: album ?? this.album,
+      palette: palette ?? this.palette,
+      importedAt: importedAt ?? this.importedAt,
+      duration: clearDuration ? null : duration ?? this.duration,
+      fileExtension: fileExtension ?? this.fileExtension,
+    );
+  }
 }
 
 class MusicCollection {
@@ -70,8 +106,6 @@ class MusicCollection {
     required this.kind,
     required this.palette,
     required this.tracks,
-    this.badge,
-    this.downloaded = false,
   });
 
   final String id;
@@ -81,38 +115,24 @@ class MusicCollection {
   final MusicCollectionKind kind;
   final List<Color> palette;
   final List<Track> tracks;
-  final String? badge;
-  final bool downloaded;
 
-  Duration get totalDuration =>
-      tracks.fold(Duration.zero, (total, track) => total + track.duration);
+  Duration get totalDuration => tracks.fold(
+    Duration.zero,
+    (total, track) => total + (track.duration ?? Duration.zero),
+  );
+
+  DateTime get latestImportAt => tracks.fold(
+    DateTime.fromMillisecondsSinceEpoch(0),
+    (latest, track) =>
+        track.importedAt.isAfter(latest) ? track.importedAt : latest,
+  );
 }
 
-class SearchCategory {
-  const SearchCategory({
-    required this.title,
-    required this.icon,
-    required this.palette,
-  });
+String formatDuration(Duration? duration, {String placeholder = '--:--'}) {
+  if (duration == null) {
+    return placeholder;
+  }
 
-  final String title;
-  final IconData icon;
-  final List<Color> palette;
-}
-
-class HomeShelf {
-  const HomeShelf({
-    required this.title,
-    required this.subtitle,
-    required this.collectionIds,
-  });
-
-  final String title;
-  final String subtitle;
-  final List<String> collectionIds;
-}
-
-String formatDuration(Duration duration) {
   final hours = duration.inHours;
   final minutes = duration.inMinutes.remainder(60);
   final seconds = duration.inSeconds.remainder(60);
@@ -121,7 +141,7 @@ String formatDuration(Duration duration) {
     return '$hours:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 
-  return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+  return '${duration.inMinutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
 }
 
 String formatRuntime(Duration duration) {
