@@ -1,0 +1,144 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: 3.41.4
+
+jobs:
+  quality:
+    name: Analyze And Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze project
+        run: flutter analyze
+
+      - name: Run tests
+        run: flutter test
+
+  android:
+    name: Build Android Artifacts
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build release APK
+        run: flutter build apk --release
+
+      - name: Build release App Bundle
+        run: flutter build appbundle --release
+
+      - name: Prepare Android artifacts
+        run: |
+          short_sha="${GITHUB_SHA::7}"
+          mkdir -p dist/android
+          cp build/app/outputs/flutter-apk/app-release.apk \
+            "dist/android/chimusic-${short_sha}-android-release.apk"
+          cp build/app/outputs/bundle/release/app-release.aab \
+            "dist/android/chimusic-${short_sha}-android-release.aab"
+
+      - name: Upload Android artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: chimusic-android-ci-${{ github.sha }}
+          path: dist/android/*
+          retention-days: 14
+
+  apple:
+    name: Build iOS And macOS Artifacts
+    needs: quality
+    runs-on: macos-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build unsigned iOS release app
+        run: flutter build ios --release --no-codesign
+
+      - name: Build macOS release app
+        run: flutter build macos --release
+
+      - name: Package Apple artifacts
+        run: |
+          short_sha="${GITHUB_SHA::7}"
+          mkdir -p dist/apple
+          ditto -c -k --sequesterRsrc --keepParent \
+            build/ios/iphoneos/Runner.app \
+            "dist/apple/chimusic-${short_sha}-ios-runner-app.zip"
+          ditto -c -k --sequesterRsrc --keepParent \
+            build/macos/Build/Products/Release/chimusic.app \
+            "dist/apple/chimusic-${short_sha}-macos-app.zip"
+          hdiutil create \
+            -volname "ChiMusic" \
+            -srcfolder build/macos/Build/Products/Release/chimusic.app \
+            -ov \
+            -format UDZO \
+            "dist/apple/chimusic-${short_sha}-macos.dmg"
+
+      - name: Upload Apple artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: chimusic-apple-ci-${{ github.sha }}
+          path: dist/apple/*
+          retention-days: 14
