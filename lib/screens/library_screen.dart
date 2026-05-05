@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
-import '../app/chimusic_theme.dart';
 import '../models/music_models.dart';
 import '../screens/collection_detail_page.dart';
 import '../state/chimusic_scope.dart';
 import '../widgets/glass.dart';
+import '../widgets/local_music_widgets.dart';
 
 class LibraryScreen extends StatelessWidget {
   const LibraryScreen({super.key});
@@ -30,73 +30,187 @@ class LibraryScreen extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                'Saved collections, downloaded listening, and quick re-entry points into the queue.',
+                'All imported local files live here, grouped into playable folders and tracked through the real audio queue.',
                 style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                   color: Colors.white.withValues(alpha: 0.68),
                 ),
               ),
-              const SizedBox(height: 22),
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: [
-                  for (final filter in LibraryFilter.values)
-                    GlassPill(
-                      label: filter.label,
-                      selected: controller.libraryFilter == filter,
-                      onTap: () => controller.setLibraryFilter(filter),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 22),
-              if (wide)
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: const [
-                    Expanded(flex: 2, child: _LikedSongsCard()),
-                    SizedBox(width: 14),
-                    Expanded(child: _DownloadCard()),
-                  ],
+              const SizedBox(height: 20),
+              ImportMusicActions(controller: controller),
+              const SizedBox(height: 18),
+              if (controller.statusMessage != null) ...[
+                StatusBanner(message: controller.statusMessage!),
+                const SizedBox(height: 18),
+              ],
+              if (!controller.hasMusic)
+                EmptyMusicState(
+                  title: 'Your library is empty',
+                  body:
+                      'Import audio files or a whole folder to replace the old mock catalog with real tracks from your device.',
+                  controller: controller,
                 )
               else ...[
-                const _LikedSongsCard(),
-                const SizedBox(height: 14),
-                const _DownloadCard(),
-              ],
-              const SizedBox(height: 28),
-              SectionHeader(
-                title: 'Saved Collections',
-                subtitle:
-                    '${controller.filteredLibraryCollections.length} visible • ${controller.savedCollections.length} total saved',
-              ),
-              const SizedBox(height: 16),
-              if (controller.filteredLibraryCollections.isEmpty)
-                GlassPanel(
-                  child: Text(
-                    'No collections match the current filter yet.',
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: Colors.white.withValues(alpha: 0.68),
-                    ),
-                  ),
-                )
-              else
-                Column(
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
                   children: [
-                    for (
-                      var index = 0;
-                      index < controller.filteredLibraryCollections.length;
-                      index++
-                    ) ...[
-                      _LibraryCollectionRow(
-                        collection:
-                            controller.filteredLibraryCollections[index],
+                    for (final filter in LibraryFilter.values)
+                      GlassPill(
+                        label: filter.label,
+                        selected: controller.libraryFilter == filter,
+                        onTap: () => controller.setLibraryFilter(filter),
                       ),
-                      if (index !=
-                          controller.filteredLibraryCollections.length - 1)
-                        const SizedBox(height: 12),
-                    ],
                   ],
                 ),
+                const SizedBox(height: 22),
+                if (wide)
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        flex: 2,
+                        child: _StatCard(
+                          icon: Icons.music_note_rounded,
+                          title: 'Imported Files',
+                          body:
+                              '${controller.importedTrackCount} tracks are available in this session.',
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: _StatCard(
+                          icon: Icons.folder_rounded,
+                          title: 'Folders',
+                          body:
+                              '${controller.collectionCount} grouped collections were derived from your file structure.',
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: _StatCard(
+                          icon: Icons.favorite_rounded,
+                          title: 'Favorites',
+                          body:
+                              '${controller.likedTracksCount} locally liked tracks are pinned for quick access.',
+                        ),
+                      ),
+                    ],
+                  )
+                else ...[
+                  _StatCard(
+                    icon: Icons.music_note_rounded,
+                    title: 'Imported Files',
+                    body:
+                        '${controller.importedTrackCount} tracks are available in this session.',
+                  ),
+                  const SizedBox(height: 14),
+                  _StatCard(
+                    icon: Icons.folder_rounded,
+                    title: 'Folders',
+                    body:
+                        '${controller.collectionCount} grouped collections were derived from your file structure.',
+                  ),
+                  const SizedBox(height: 14),
+                  _StatCard(
+                    icon: Icons.favorite_rounded,
+                    title: 'Favorites',
+                    body:
+                        '${controller.likedTracksCount} locally liked tracks are pinned for quick access.',
+                  ),
+                ],
+                if (controller.filteredLibraryCollections.isNotEmpty) ...[
+                  const SizedBox(height: 30),
+                  SectionHeader(
+                    title: 'Folders',
+                    subtitle:
+                        'Open a folder collection or play it as one queue',
+                  ),
+                  const SizedBox(height: 16),
+                  Column(
+                    children: [
+                      for (
+                        var index = 0;
+                        index < controller.filteredLibraryCollections.length;
+                        index++
+                      ) ...[
+                        _LibraryCollectionRow(
+                          collection:
+                              controller.filteredLibraryCollections[index],
+                        ),
+                        if (index !=
+                            controller.filteredLibraryCollections.length - 1)
+                          const SizedBox(height: 12),
+                      ],
+                    ],
+                  ),
+                ],
+                if (controller.filteredLibraryTracks.isNotEmpty) ...[
+                  const SizedBox(height: 30),
+                  SectionHeader(
+                    title: controller.libraryFilter == LibraryFilter.favorites
+                        ? 'Favorite Tracks'
+                        : 'Tracks',
+                    subtitle:
+                        'Real local audio files, ready for direct playback',
+                  ),
+                  const SizedBox(height: 16),
+                  Column(
+                    children: [
+                      for (
+                        var index = 0;
+                        index < controller.filteredLibraryTracks.length;
+                        index++
+                      ) ...[
+                        TrackRow(
+                          track: controller.filteredLibraryTracks[index],
+                          onTap: () {
+                            controller.playTrack(
+                              controller.filteredLibraryTracks[index],
+                              collection: controller.collectionForTrack(
+                                controller.filteredLibraryTracks[index],
+                              ),
+                            );
+                          },
+                          trailing: Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                formatDuration(
+                                  controller
+                                      .filteredLibraryTracks[index]
+                                      .duration,
+                                ),
+                                style: Theme.of(context).textTheme.bodyMedium
+                                    ?.copyWith(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.68,
+                                      ),
+                                    ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                controller
+                                    .filteredLibraryTracks[index]
+                                    .typeLabel,
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.50,
+                                      ),
+                                    ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (index !=
+                            controller.filteredLibraryTracks.length - 1)
+                          const SizedBox(height: 12),
+                      ],
+                    ],
+                  ),
+                ],
+              ],
             ],
           ),
         ),
@@ -105,116 +219,30 @@ class LibraryScreen extends StatelessWidget {
   }
 }
 
-class _LikedSongsCard extends StatelessWidget {
-  const _LikedSongsCard();
+class _StatCard extends StatelessWidget {
+  const _StatCard({
+    required this.icon,
+    required this.title,
+    required this.body,
+  });
+
+  final IconData icon;
+  final String title;
+  final String body;
 
   @override
   Widget build(BuildContext context) {
-    final controller = ChiMusicScope.watch(context);
-
-    return GlassPanel(
-      padding: const EdgeInsets.all(22),
-      tintColors: [
-        LiquidPalette.aqua.withValues(alpha: 0.30),
-        LiquidPalette.deepCyan.withValues(alpha: 0.12),
-      ],
-      child: Row(
-        children: [
-          ArtworkCover(
-            title: 'Liked Songs',
-            palette: const [
-              Color(0xFF86F0FF),
-              Color(0xFF376EFF),
-              Color(0xFF101C4A),
-            ],
-            size: 110,
-            showTitle: true,
-            icon: Icons.favorite_rounded,
-          ),
-          const SizedBox(width: 18),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Liked Songs',
-                  style: Theme.of(context).textTheme.headlineSmall,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '${controller.likedTracksCount} saved tracks ready to play from any screen.',
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.68),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                GlassPanel(
-                  onTap: controller.togglePlayPause,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 14,
-                  ),
-                  borderRadius: BorderRadius.circular(22),
-                  tintColors: [
-                    Colors.white.withValues(alpha: 0.16),
-                    Colors.white.withValues(alpha: 0.06),
-                  ],
-                  withShadow: false,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        controller.isPlaying
-                            ? Icons.pause_rounded
-                            : Icons.play_arrow_rounded,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        controller.isPlaying
-                            ? 'Pause current'
-                            : 'Resume current',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DownloadCard extends StatelessWidget {
-  const _DownloadCard();
-
-  @override
-  Widget build(BuildContext context) {
-    final controller = ChiMusicScope.watch(context);
-
     return GlassPanel(
       padding: const EdgeInsets.all(22),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          GlassPill(
-            label: 'Offline Ready',
-            leading: Icon(
-              Icons.download_done_rounded,
-              size: 16,
-              color: Colors.white.withValues(alpha: 0.82),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            '${controller.downloadedCollectionCount} downloaded collections',
-            style: Theme.of(context).textTheme.headlineSmall,
-          ),
+          Icon(icon, color: Colors.white.withValues(alpha: 0.88)),
+          const SizedBox(height: 14),
+          Text(title, style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 8),
           Text(
-            'For the MVP these are local mock states, but the flow is already shaped for real offline status.',
+            body,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               color: Colors.white.withValues(alpha: 0.66),
             ),
@@ -248,6 +276,7 @@ class _LibraryCollectionRow extends StatelessWidget {
               palette: collection.palette,
               size: 88,
               showTitle: true,
+              icon: Icons.folder_rounded,
             ),
           ),
           const SizedBox(width: 14),
@@ -265,14 +294,14 @@ class _LibraryCollectionRow extends StatelessWidget {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    '${collection.kind.label} • ${collection.tracks.length} tracks',
+                    '${collection.kind.label} • ${collection.tracks.length} files',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: Colors.white.withValues(alpha: 0.66),
                     ),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    collection.subtitle,
+                    collection.description,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -288,7 +317,9 @@ class _LibraryCollectionRow extends StatelessWidget {
             children: [
               GlassIconButton(
                 icon: Icons.play_arrow_rounded,
-                onTap: () => controller.playCollection(collection),
+                onTap: () {
+                  controller.playCollection(collection);
+                },
                 size: 48,
                 iconSize: 24,
               ),

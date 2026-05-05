@@ -62,19 +62,11 @@ class CollectionDetailPage extends StatelessWidget {
                                 palette: collection.palette,
                                 size: 280,
                                 showTitle: true,
+                                icon: Icons.folder_rounded,
                               ),
                               const SizedBox(width: 28),
                               Expanded(
-                                child: _CollectionHero(
-                                  collection: collection,
-                                  onPlay: () =>
-                                      controller.playCollection(collection),
-                                  onToggleSave: () => controller
-                                      .toggleSavedCollection(collection.id),
-                                  saved: controller.isCollectionSaved(
-                                    collection.id,
-                                  ),
-                                ),
+                                child: _CollectionHero(collection: collection),
                               ),
                             ],
                           )
@@ -85,22 +77,17 @@ class CollectionDetailPage extends StatelessWidget {
                               palette: collection.palette,
                               size: 260,
                               showTitle: true,
+                              icon: Icons.folder_rounded,
                             ),
                           ),
                           const SizedBox(height: 24),
-                          _CollectionHero(
-                            collection: collection,
-                            onPlay: () => controller.playCollection(collection),
-                            onToggleSave: () =>
-                                controller.toggleSavedCollection(collection.id),
-                            saved: controller.isCollectionSaved(collection.id),
-                          ),
+                          _CollectionHero(collection: collection),
                         ],
                         const SizedBox(height: 28),
                         SectionHeader(
                           title: 'Track List',
                           subtitle:
-                              '${collection.tracks.length} songs • ${formatRuntime(collection.totalDuration)}',
+                              '${collection.tracks.length} files • ${formatRuntime(collection.totalDuration)}',
                         ),
                         const SizedBox(height: 16),
                         GlassPanel(
@@ -113,20 +100,42 @@ class CollectionDetailPage extends StatelessWidget {
                               ) ...[
                                 TrackRow(
                                   track: collection.tracks[index],
-                                  onTap: () => controller.playTrack(
-                                    collection.tracks[index],
-                                    collection: collection,
-                                  ),
-                                  trailing: Text(
-                                    formatDuration(
-                                      collection.tracks[index].duration,
-                                    ),
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .bodyMedium
-                                        ?.copyWith(
-                                          color: Colors.white.withValues(alpha: 0.66),
+                                  onTap: () {
+                                    controller.playTrack(
+                                      collection.tracks[index],
+                                      collection: collection,
+                                    );
+                                  },
+                                  trailing: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Text(
+                                        formatDuration(
+                                          collection.tracks[index].duration,
                                         ),
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodyMedium
+                                            ?.copyWith(
+                                              color: Colors.white.withValues(
+                                                alpha: 0.66,
+                                              ),
+                                            ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        collection.tracks[index].typeLabel,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall
+                                            ?.copyWith(
+                                              color: Colors.white.withValues(
+                                                alpha: 0.50,
+                                              ),
+                                            ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                                 if (index != collection.tracks.length - 1)
@@ -171,20 +180,14 @@ class CollectionDetailPage extends StatelessWidget {
 }
 
 class _CollectionHero extends StatelessWidget {
-  const _CollectionHero({
-    required this.collection,
-    required this.onPlay,
-    required this.onToggleSave,
-    required this.saved,
-  });
+  const _CollectionHero({required this.collection});
 
   final MusicCollection collection;
-  final VoidCallback onPlay;
-  final VoidCallback onToggleSave;
-  final bool saved;
 
   @override
   Widget build(BuildContext context) {
+    final controller = ChiMusicScope.watch(context);
+
     return GlassPanel(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -195,8 +198,7 @@ class _CollectionHero extends StatelessWidget {
             runSpacing: 10,
             children: [
               GlassPill(label: collection.kind.label),
-              if (collection.badge != null) GlassPill(label: collection.badge!),
-              GlassPill(label: '${collection.tracks.length} tracks'),
+              GlassPill(label: '${collection.tracks.length} files'),
               GlassPill(label: formatRuntime(collection.totalDuration)),
             ],
           ),
@@ -226,7 +228,9 @@ class _CollectionHero extends StatelessWidget {
             children: [
               Expanded(
                 child: GlassPanel(
-                  onTap: onPlay,
+                  onTap: () {
+                    controller.playCollection(collection);
+                  },
                   padding: const EdgeInsets.symmetric(
                     horizontal: 18,
                     vertical: 16,
@@ -242,7 +246,7 @@ class _CollectionHero extends StatelessWidget {
                       const Icon(Icons.play_arrow_rounded),
                       const SizedBox(width: 10),
                       Text(
-                        'Play Collection',
+                        'Play Folder',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                     ],
@@ -251,9 +255,11 @@ class _CollectionHero extends StatelessWidget {
               ),
               const SizedBox(width: 12),
               GlassIconButton(
-                icon: saved ? Icons.check_rounded : Icons.add_rounded,
-                selected: saved,
-                onTap: onToggleSave,
+                icon: controller.isCollectionSaved(collection.id)
+                    ? Icons.check_rounded
+                    : Icons.add_rounded,
+                selected: controller.isCollectionSaved(collection.id),
+                onTap: () => controller.toggleSavedCollection(collection.id),
                 size: 56,
                 iconSize: 26,
               ),

@@ -40,9 +40,14 @@ class NowPlayingSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = ChiMusicScope.watch(context);
     final track = controller.currentTrack;
-    final collection =
-        controller.currentCollection ?? controller.collectionForTrack(track);
+    final collection = track == null
+        ? null
+        : controller.collectionForTrack(track);
     final desktop = isWideWidth(context);
+
+    if (track == null) {
+      return const SizedBox.shrink();
+    }
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -125,6 +130,7 @@ class NowPlayingSheet extends StatelessWidget {
                                         palette: track.palette,
                                         size: 320,
                                         showTitle: true,
+                                        icon: Icons.music_note_rounded,
                                       ),
                                       const SizedBox(width: 28),
                                       Expanded(
@@ -142,6 +148,7 @@ class NowPlayingSheet extends StatelessWidget {
                                       palette: track.palette,
                                       size: 280,
                                       showTitle: true,
+                                      icon: Icons.music_note_rounded,
                                     ),
                                   ),
                                   const SizedBox(height: 24),
@@ -160,9 +167,9 @@ class NowPlayingSheet extends StatelessWidget {
                                   runSpacing: 10,
                                   children: [
                                     GlassPill(
-                                      label: track.moodTag,
+                                      label: track.typeLabel,
                                       leading: const Icon(
-                                        Icons.wb_twilight_rounded,
+                                        Icons.audio_file_rounded,
                                         size: 16,
                                       ),
                                     ),
@@ -170,7 +177,7 @@ class NowPlayingSheet extends StatelessWidget {
                                       GlassPill(
                                         label: collection.kind.label,
                                         leading: const Icon(
-                                          Icons.album_rounded,
+                                          Icons.folder_rounded,
                                           size: 16,
                                         ),
                                       ),
@@ -195,34 +202,51 @@ class NowPlayingSheet extends StatelessWidget {
                                         ).textTheme.titleLarge,
                                       ),
                                       const SizedBox(height: 12),
-                                      for (final queuedTrack
-                                          in controller.upNext) ...[
-                                        TrackRow(
-                                          track: queuedTrack,
-                                          onTap: () => controller.playTrack(
-                                            queuedTrack,
-                                            collection: controller
-                                                .collectionForTrack(
-                                                  queuedTrack,
+                                      if (controller.upNext.isEmpty)
+                                        Text(
+                                          'The queue ends with the current track.',
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodyMedium
+                                              ?.copyWith(
+                                                color: Colors.white.withValues(
+                                                  alpha: 0.66,
                                                 ),
-                                          ),
-                                          trailing: Text(
-                                            formatDuration(
-                                              queuedTrack.duration,
+                                              ),
+                                        )
+                                      else
+                                        for (final queuedTrack
+                                            in controller.upNext) ...[
+                                          TrackRow(
+                                            track: queuedTrack,
+                                            onTap: () {
+                                              controller.playTrack(
+                                                queuedTrack,
+                                                collection: controller
+                                                    .collectionForTrack(
+                                                      queuedTrack,
+                                                    ),
+                                              );
+                                            },
+                                            trailing: Text(
+                                              formatDuration(
+                                                queuedTrack.duration,
+                                              ),
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .bodyMedium
+                                                  ?.copyWith(
+                                                    color: Colors.white
+                                                        .withValues(
+                                                          alpha: 0.66,
+                                                        ),
+                                                  ),
                                             ),
-                                            style: Theme.of(context)
-                                                .textTheme
-                                                .bodyMedium
-                                                ?.copyWith(
-                                                  color: Colors.white
-                                                      .withValues(alpha: 0.66),
-                                                ),
                                           ),
-                                        ),
-                                        if (queuedTrack !=
-                                            controller.upNext.last)
-                                          const SizedBox(height: 12),
-                                      ],
+                                          if (queuedTrack !=
+                                              controller.upNext.last)
+                                            const SizedBox(height: 12),
+                                        ],
                                     ],
                                   ),
                                 ),
@@ -270,30 +294,46 @@ class _NowPlayingDetails extends StatelessWidget {
         const SizedBox(height: 14),
         Text(
           collection?.description ??
-              'A polished queue built around your current mood.',
+              'A local file from your imported library, now playing through a real audio queue.',
           style: Theme.of(context).textTheme.bodyLarge?.copyWith(
             color: Colors.white.withValues(alpha: 0.66),
           ),
         ),
-        if (track.lyricLine != null) ...[
-          const SizedBox(height: 18),
-          GlassPanel(
-            padding: const EdgeInsets.all(16),
-            borderRadius: BorderRadius.circular(24),
-            tintColors: [
-              Colors.white.withValues(alpha: 0.12),
-              Colors.white.withValues(alpha: 0.05),
-            ],
-            withShadow: false,
-            child: Text(
-              '"${track.lyricLine}"',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontStyle: FontStyle.italic,
-                color: Colors.white.withValues(alpha: 0.78),
+        const SizedBox(height: 18),
+        GlassPanel(
+          padding: const EdgeInsets.all(16),
+          borderRadius: BorderRadius.circular(24),
+          tintColors: [
+            Colors.white.withValues(alpha: 0.12),
+            Colors.white.withValues(alpha: 0.05),
+          ],
+          withShadow: false,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Source file',
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: Colors.white.withValues(alpha: 0.62),
+                ),
               ),
-            ),
+              const SizedBox(height: 8),
+              Text(
+                track.fileName,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                track.filePath,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Colors.white.withValues(alpha: 0.60),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ],
     );
   }
@@ -318,7 +358,12 @@ class _ProgressSection extends StatelessWidget {
             thumbColor: LiquidPalette.softWhite,
             overlayColor: LiquidPalette.aqua.withValues(alpha: 0.18),
           ),
-          child: Slider(value: progress, onChanged: controller.seekToFraction),
+          child: Slider(
+            value: progress,
+            onChanged: (value) {
+              controller.seekToFraction(value);
+            },
+          ),
         ),
         Row(
           children: [
@@ -366,7 +411,9 @@ class _TransportControls extends StatelessWidget {
         const SizedBox(width: 14),
         GlassIconButton(
           icon: Icons.skip_previous_rounded,
-          onTap: controller.skipPrevious,
+          onTap: () {
+            controller.skipPrevious();
+          },
           size: 60,
           iconSize: 30,
         ),
@@ -375,7 +422,9 @@ class _TransportControls extends StatelessWidget {
           icon: controller.isPlaying
               ? Icons.pause_rounded
               : Icons.play_arrow_rounded,
-          onTap: controller.togglePlayPause,
+          onTap: () {
+            controller.togglePlayPause();
+          },
           selected: true,
           size: 76,
           iconSize: 40,
@@ -383,13 +432,15 @@ class _TransportControls extends StatelessWidget {
         const SizedBox(width: 14),
         GlassIconButton(
           icon: Icons.skip_next_rounded,
-          onTap: controller.skipNext,
+          onTap: () {
+            controller.skipNext();
+          },
           size: 60,
           iconSize: 30,
         ),
         const SizedBox(width: 14),
         GlassIconButton(
-          icon: Icons.speaker_group_rounded,
+          icon: Icons.queue_music_rounded,
           onTap: () {},
           size: 54,
           iconSize: 24,

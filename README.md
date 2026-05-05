@@ -5,9 +5,9 @@ ChiMusic is a Flutter music app prototype for Android, iOS, and macOS with a Spo
 ## Local Development
 
 ```bash
-/Users/mutse/development/flutter/bin/flutter pub get
-/Users/mutse/development/flutter/bin/flutter analyze
-/Users/mutse/development/flutter/bin/flutter test
+$ flutter pub get
+$ flutter analyze
+$ flutter test
 ```
 
 ## Product And Design Notes

@@ -6,7 +6,9 @@ import '../widgets/app_shell.dart';
 import 'chimusic_theme.dart';
 
 class ChiMusicRoot extends StatefulWidget {
-  const ChiMusicRoot({super.key});
+  const ChiMusicRoot({super.key, this.controller});
+
+  final MusicAppController? controller;
 
   @override
   State<ChiMusicRoot> createState() => _ChiMusicRootState();
@@ -14,16 +16,20 @@ class ChiMusicRoot extends StatefulWidget {
 
 class _ChiMusicRootState extends State<ChiMusicRoot> {
   late final MusicAppController _controller;
+  late final bool _ownsController;
 
   @override
   void initState() {
     super.initState();
-    _controller = MusicAppController();
+    _ownsController = widget.controller == null;
+    _controller = widget.controller ?? MusicAppController();
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    if (_ownsController) {
+      _controller.dispose();
+    }
     super.dispose();
   }
 
