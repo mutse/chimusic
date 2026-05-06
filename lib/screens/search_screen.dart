@@ -73,7 +73,10 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
               const SizedBox(height: 24),
               if (controller.statusMessage != null) ...[
-                StatusBanner(message: controller.statusMessage!),
+                StatusBanner(
+                  message: controller.statusMessage!,
+                  onDismiss: controller.clearStatusMessage,
+                ),
                 const SizedBox(height: 18),
               ],
               if (!controller.hasMusic)
@@ -90,6 +93,14 @@ class _SearchScreenState extends State<SearchScreen> {
                     title: 'Recent Searches',
                     subtitle:
                         'Reusable jumps back into the terms you searched most recently',
+                    trailing: GlassPill(
+                      label: 'Clear',
+                      leading: const Icon(
+                        Icons.delete_outline_rounded,
+                        size: 16,
+                      ),
+                      onTap: controller.clearRecentSearches,
+                    ),
                   ),
                   const SizedBox(height: 16),
                   Wrap(
@@ -249,6 +260,13 @@ class _SearchHero extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
+          Text(
+            'Search stays on device and only scans the library you imported into ChiMusic.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Colors.white.withValues(alpha: 0.52),
+            ),
+          ),
+          const SizedBox(height: 12),
           GlassPanel(
             padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
             borderRadius: BorderRadius.circular(28),

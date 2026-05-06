@@ -56,9 +56,10 @@ class ImportMusicActions extends StatelessWidget {
 }
 
 class StatusBanner extends StatelessWidget {
-  const StatusBanner({super.key, required this.message});
+  const StatusBanner({super.key, required this.message, this.onDismiss});
 
   final String message;
+  final VoidCallback? onDismiss;
 
   @override
   Widget build(BuildContext context) {
@@ -85,6 +86,15 @@ class StatusBanner extends StatelessWidget {
               ),
             ),
           ),
+          if (onDismiss != null) ...[
+            const SizedBox(width: 10),
+            GlassIconButton(
+              icon: Icons.close_rounded,
+              size: 34,
+              iconSize: 16,
+              onTap: onDismiss!,
+            ),
+          ],
         ],
       ),
     );

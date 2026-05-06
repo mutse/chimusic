@@ -260,10 +260,52 @@ class _CollectionHero extends StatelessWidget {
                 size: 56,
                 iconSize: 22,
               ),
+              const SizedBox(width: 12),
+              GlassIconButton(
+                icon: Icons.delete_outline_rounded,
+                onTap: () async {
+                  final shouldRemove = await _confirmRemoveCollection(context);
+                  if (shouldRemove != true) {
+                    return;
+                  }
+
+                  await controller.removeCollectionFromLibrary(collection.id);
+                  if (context.mounted) {
+                    Navigator.of(context).pop();
+                  }
+                },
+                size: 56,
+                iconSize: 22,
+              ),
             ],
           ),
         ],
       ),
+    );
+  }
+
+  Future<bool?> _confirmRemoveCollection(BuildContext context) {
+    return showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: LiquidPalette.surfaceRaised,
+          title: const Text('Remove This Collection?'),
+          content: const Text(
+            'This removes the collection from ChiMusic only. The original audio files on your device will stay untouched.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Remove'),
+            ),
+          ],
+        );
+      },
     );
   }
 }

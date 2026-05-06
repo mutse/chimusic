@@ -26,7 +26,10 @@ class HomeScreen extends StatelessWidget {
               _HomeHeader(controller: controller),
               const SizedBox(height: 24),
               if (controller.statusMessage != null) ...[
-                StatusBanner(message: controller.statusMessage!),
+                StatusBanner(
+                  message: controller.statusMessage!,
+                  onDismiss: controller.clearStatusMessage,
+                ),
                 const SizedBox(height: 18),
               ],
               if (!controller.hasMusic)
@@ -168,6 +171,13 @@ class _OnboardingHero extends StatelessWidget {
             'Import audio once and ChiMusic will build a richer Home feed, live Search suggestions, and a Library that feels closer to a real streaming product.',
             style: Theme.of(context).textTheme.bodyLarge?.copyWith(
               color: Colors.white.withValues(alpha: 0.72),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'All imported music stays on this device, and you can clear the in-app library at any time without deleting the original files.',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Colors.white.withValues(alpha: 0.54),
             ),
           ),
           const SizedBox(height: 24),

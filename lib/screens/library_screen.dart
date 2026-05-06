@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../app/chimusic_theme.dart';
 import '../models/music_models.dart';
+import '../screens/app_details_sheet.dart';
 import '../screens/collection_detail_page.dart';
 import '../state/chimusic_controller.dart';
 import '../state/chimusic_scope.dart';
@@ -24,16 +25,36 @@ class LibraryScreen extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Your Library',
-                style: Theme.of(context).textTheme.displaySmall,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Manage saved folders, liked tracks, and the full collection built from your local file imports.',
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  color: Colors.white.withValues(alpha: 0.70),
-                ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Your Library',
+                          style: Theme.of(context).textTheme.displaySmall,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Manage saved folders, liked tracks, and the full collection built from your local file imports.',
+                          style: Theme.of(context).textTheme.bodyLarge
+                              ?.copyWith(
+                                color: Colors.white.withValues(alpha: 0.70),
+                              ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  GlassIconButton(
+                    icon: Icons.tune_rounded,
+                    onTap: () => AppDetailsSheet.show(context),
+                    size: 48,
+                    iconSize: 20,
+                  ),
+                ],
               ),
               const SizedBox(height: 20),
               if (wide)
@@ -58,7 +79,10 @@ class LibraryScreen extends StatelessWidget {
               ],
               const SizedBox(height: 18),
               if (controller.statusMessage != null) ...[
-                StatusBanner(message: controller.statusMessage!),
+                StatusBanner(
+                  message: controller.statusMessage!,
+                  onDismiss: controller.clearStatusMessage,
+                ),
                 const SizedBox(height: 18),
               ],
               if (!controller.hasMusic)
@@ -241,6 +265,13 @@ class _LibrarySummary extends StatelessWidget {
             'The library now behaves more like a real product surface: saved collections, filters, sorting, and playback entry points all live together.',
             style: Theme.of(context).textTheme.bodyLarge?.copyWith(
               color: Colors.white.withValues(alpha: 0.70),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'Your music remains on device, and removing items from ChiMusic never deletes the original files from storage.',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Colors.white.withValues(alpha: 0.56),
             ),
           ),
           const SizedBox(height: 18),

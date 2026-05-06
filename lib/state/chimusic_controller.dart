@@ -10,9 +10,29 @@ import '../data/local_audio_importer.dart';
 import '../models/music_models.dart';
 
 class MusicAppController extends ChangeNotifier {
-  MusicAppController({AudioPlayer? player, bool enableAudio = true})
-    : _audioEnabled = enableAudio,
-      _player = enableAudio ? (player ?? AudioPlayer()) : null {
+  MusicAppController({
+    AudioPlayer? player,
+    bool enableAudio = true,
+    List<Track> initialTracks = const <Track>[],
+    Set<String> initialLikedTrackIds = const <String>{},
+    Set<String> initialSavedCollectionIds = const <String>{},
+    List<String> initialRecentTrackIds = const <String>[],
+    List<String> initialRecentSearches = const <String>[],
+    MusicTab initialSelectedTab = MusicTab.home,
+    LibraryFilter initialLibraryFilter = LibraryFilter.all,
+    LibrarySort initialLibrarySort = LibrarySort.recent,
+    String initialSearchQuery = '',
+  }) : _audioEnabled = enableAudio,
+       _player = enableAudio ? (player ?? AudioPlayer()) : null {
+    _tracks = List<Track>.from(initialTracks);
+    _likedTrackIds.addAll(initialLikedTrackIds);
+    _savedCollectionIds.addAll(initialSavedCollectionIds);
+    _recentTrackIds.addAll(initialRecentTrackIds);
+    _recentSearches.addAll(initialRecentSearches);
+    _selectedTab = initialSelectedTab;
+    _libraryFilter = initialLibraryFilter;
+    _librarySort = initialLibrarySort;
+    _searchQuery = initialSearchQuery;
     _bindAudioStreams();
   }
 
@@ -489,6 +509,24 @@ class MusicAppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void clearRecentSearches() {
+    if (_recentSearches.isEmpty) {
+      return;
+    }
+
+    _recentSearches.clear();
+    notifyListeners();
+  }
+
+  void clearStatusMessage() {
+    if (_statusMessage == null) {
+      return;
+    }
+
+    _statusMessage = null;
+    notifyListeners();
+  }
+
   void submitSearch([String? value]) {
     final candidate = (value ?? _searchQuery).trim();
     if (candidate.isEmpty) {
@@ -671,24 +709,73 @@ class MusicAppController extends ChangeNotifier {
   }
 
   Future<void> playFavoriteTracks() async {
-    if (favoriteTracks.isEmpty) {
+    final favorites = favoriteTracks;
+    if (favorites.isEmpty) {
       return;
     }
 
     await _loadQueue(
-      favoriteTracks,
+      favorites,
       initialIndex: 0,
-      collection: MusicCollection(
-        id: 'favorites',
-        title: 'Liked Songs',
-        subtitle: '${favoriteTracks.length} liked tracks',
-        description: 'Tracks you have liked in your local library.',
-        kind: MusicCollectionKind.playlist,
-        palette: favoriteTracks.first.palette,
-        tracks: favoriteTracks,
-      ),
+      collection: _buildLikedSongsCollection(favorites),
       autoplay: true,
     );
+  }
+
+  Future<void> removeCollectionFromLibrary(String collectionId) async {
+    MusicCollection? target;
+    for (final collection in importedCollections) {
+      if (collection.id == collectionId) {
+        target = collection;
+        break;
+      }
+    }
+
+    if (target == null) {
+      return;
+    }
+
+    final removedTrackIds = target.tracks.map((track) => track.id).toSet();
+    _savedCollectionIds.remove(collectionId);
+
+    await _removeTracksFromLibrary(
+      removedTrackIds,
+      successMessage:
+          'Removed ${target.tracks.length} track${target.tracks.length == 1 ? '' : 's'} from ChiMusic. Original files were not deleted.',
+    );
+  }
+
+  Future<void> clearLibrarySession() async {
+    final hadAnyData =
+        _tracks.isNotEmpty ||
+        _likedTrackIds.isNotEmpty ||
+        _savedCollectionIds.isNotEmpty ||
+        _recentTrackIds.isNotEmpty ||
+        _recentSearches.isNotEmpty ||
+        _currentTrack != null;
+
+    if (!hadAnyData) {
+      _statusMessage = 'Your ChiMusic session is already clear.';
+      notifyListeners();
+      return;
+    }
+
+    await _stopPlayback();
+    _tracks = <Track>[];
+    _queue = <Track>[];
+    _currentTrack = null;
+    _currentCollection = null;
+    _position = Duration.zero;
+    _searchQuery = '';
+    _likedTrackIds.clear();
+    _savedCollectionIds.clear();
+    _recentTrackIds.clear();
+    _recentSearches.clear();
+    _isPlaying = false;
+    _isPreparingPlayback = false;
+    _statusMessage =
+        'Cleared imported items from ChiMusic. Original audio files were not deleted.';
+    notifyListeners();
   }
 
   Future<void> seekToFraction(double fraction) async {
@@ -866,6 +953,18 @@ class MusicAppController extends ChangeNotifier {
     return score;
   }
 
+  MusicCollection _buildLikedSongsCollection(List<Track> favorites) {
+    return MusicCollection(
+      id: 'favorites',
+      title: 'Liked Songs',
+      subtitle: '${favorites.length} liked tracks',
+      description: 'Tracks you have liked in your local library.',
+      kind: MusicCollectionKind.playlist,
+      palette: favorites.first.palette,
+      tracks: favorites,
+    );
+  }
+
   void _rememberSearch(String value) {
     _recentSearches.removeWhere(
       (entry) => entry.toLowerCase() == value.toLowerCase(),
@@ -878,6 +977,69 @@ class MusicAppController extends ChangeNotifier {
   }
 
   String get _normalizedQuery => _searchQuery.trim().toLowerCase();
+
+  Future<void> _removeTracksFromLibrary(
+    Set<String> removedTrackIds, {
+    required String successMessage,
+  }) async {
+    if (removedTrackIds.isEmpty) {
+      return;
+    }
+
+    final removedCurrentTrack =
+        _currentTrack != null && removedTrackIds.contains(_currentTrack!.id);
+
+    if (removedCurrentTrack) {
+      await _stopPlayback();
+    }
+
+    _tracks = _tracks
+        .where((track) => !removedTrackIds.contains(track.id))
+        .toList(growable: false);
+    _queue = _queue
+        .where((track) => !removedTrackIds.contains(track.id))
+        .toList(growable: false);
+    _likedTrackIds.removeWhere(removedTrackIds.contains);
+    _recentTrackIds.removeWhere(removedTrackIds.contains);
+
+    if (_tracks.isEmpty || removedCurrentTrack) {
+      _queue = <Track>[];
+      _currentTrack = null;
+      _currentCollection = null;
+      _position = Duration.zero;
+      _isPlaying = false;
+      _isPreparingPlayback = false;
+    } else if (_currentTrack != null) {
+      final currentTrack = _currentTrack!;
+      if (_currentCollection?.id == 'favorites') {
+        final favorites = favoriteTracks;
+        _currentCollection = favorites.isEmpty
+            ? null
+            : _buildLikedSongsCollection(favorites);
+      } else if (_currentCollection?.id == 'all_tracks') {
+        _currentCollection = allTracksCollection;
+      } else {
+        _currentCollection =
+            collectionForTrack(currentTrack) ?? allTracksCollection;
+      }
+    }
+
+    _savedCollectionIds.removeWhere(
+      (collectionId) => !importedCollections.any(
+        (collection) => collection.id == collectionId,
+      ),
+    );
+    _statusMessage = successMessage;
+    notifyListeners();
+  }
+
+  Future<void> _stopPlayback() async {
+    if (!_audioEnabled || _player == null) {
+      return;
+    }
+
+    await _player.stop();
+  }
 
   Future<void> _importPaths(List<String> filePaths) async {
     if (filePaths.isEmpty) {
