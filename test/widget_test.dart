@@ -9,11 +9,13 @@ void main() {
     await tester.pumpWidget(ChiMusicRoot(controller: controller));
     await tester.pump();
 
-    expect(find.text('Local music'), findsOneWidget);
-    expect(find.text('Import local music to begin'), findsOneWidget);
-    expect(find.text('Home'), findsOneWidget);
-    expect(find.text('Search'), findsOneWidget);
-    expect(find.text('Library'), findsOneWidget);
+    expect(find.text('Home'), findsWidgets);
+    expect(find.text('Search'), findsWidgets);
+    expect(find.text('Library'), findsWidgets);
+    expect(
+      find.text('Turn local files into a full music app experience.'),
+      findsOneWidget,
+    );
 
     controller.dispose();
   });

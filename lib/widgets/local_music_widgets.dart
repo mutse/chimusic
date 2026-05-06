@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../app/chimusic_theme.dart';
 import '../state/chimusic_controller.dart';
 import 'glass.dart';
 
@@ -29,6 +30,7 @@ class ImportMusicActions extends StatelessWidget {
                 controller.importLocalFiles();
               },
         compact: compact,
+        accent: true,
       ),
       if (controller.supportsDirectoryImport)
         _ActionButton(
@@ -40,6 +42,7 @@ class ImportMusicActions extends StatelessWidget {
                   controller.importLocalFolder();
                 },
           compact: compact,
+          accent: false,
         ),
     ];
 
@@ -63,8 +66,8 @@ class StatusBanner extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       borderRadius: BorderRadius.circular(22),
       tintColors: [
-        Colors.white.withValues(alpha: 0.14),
-        Colors.white.withValues(alpha: 0.05),
+        LiquidPalette.surfaceSoft.withValues(alpha: 0.72),
+        LiquidPalette.surface.withValues(alpha: 0.90),
       ],
       withShadow: false,
       child: Row(
@@ -105,19 +108,28 @@ class EmptyMusicState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GlassPanel(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(26),
       borderRadius: BorderRadius.circular(34),
+      tintColors: [
+        LiquidPalette.surfaceRaised.withValues(alpha: 0.98),
+        LiquidPalette.surface.withValues(alpha: 0.95),
+      ],
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            width: 64,
-            height: 64,
+            width: 72,
+            height: 72,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Colors.white.withValues(alpha: 0.12),
+              gradient: LinearGradient(
+                colors: [
+                  LiquidPalette.aqua.withValues(alpha: 0.96),
+                  LiquidPalette.mint.withValues(alpha: 0.82),
+                ],
+              ),
             ),
-            child: Icon(icon, size: 30),
+            child: Icon(icon, size: 32, color: LiquidPalette.ink),
           ),
           const SizedBox(height: 18),
           Text(
@@ -130,7 +142,14 @@ class EmptyMusicState extends StatelessWidget {
           Text(
             body,
             style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-              color: Colors.white.withValues(alpha: 0.68),
+              color: Colors.white.withValues(alpha: 0.72),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'Import files to unlock Home recommendations, Search discovery, and a real Library flow based on your own audio.',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Colors.white.withValues(alpha: 0.52),
             ),
           ),
           const SizedBox(height: 20),
@@ -147,12 +166,14 @@ class _ActionButton extends StatelessWidget {
     required this.label,
     required this.onTap,
     required this.compact,
+    required this.accent,
   });
 
   final IconData icon;
   final String label;
   final VoidCallback? onTap;
   final bool compact;
+  final bool accent;
 
   @override
   Widget build(BuildContext context) {
@@ -163,17 +184,34 @@ class _ActionButton extends StatelessWidget {
         vertical: compact ? 12 : 14,
       ),
       borderRadius: BorderRadius.circular(22),
-      tintColors: [
-        Colors.white.withValues(alpha: 0.18),
-        Colors.white.withValues(alpha: 0.06),
-      ],
+      tintColors: accent
+          ? [
+              LiquidPalette.aqua.withValues(alpha: 0.94),
+              LiquidPalette.mint.withValues(alpha: 0.72),
+            ]
+          : [
+              LiquidPalette.surfaceSoft.withValues(alpha: 0.76),
+              LiquidPalette.surface.withValues(alpha: 0.92),
+            ],
+      borderColor: accent
+          ? LiquidPalette.mint.withValues(alpha: 0.22)
+          : Colors.white.withValues(alpha: 0.06),
       withShadow: false,
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: compact ? 18 : 20),
+          Icon(
+            icon,
+            size: compact ? 18 : 20,
+            color: accent ? LiquidPalette.ink : LiquidPalette.softWhite,
+          ),
           const SizedBox(width: 10),
-          Text(label, style: Theme.of(context).textTheme.titleMedium),
+          Text(
+            label,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              color: accent ? LiquidPalette.ink : LiquidPalette.softWhite,
+            ),
+          ),
         ],
       ),
     );

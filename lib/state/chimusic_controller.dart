@@ -21,6 +21,7 @@ class MusicAppController extends ChangeNotifier {
   final Set<String> _likedTrackIds = <String>{};
   final Set<String> _savedCollectionIds = <String>{};
   final List<String> _recentTrackIds = <String>[];
+  final List<String> _recentSearches = <String>[];
   final List<StreamSubscription<dynamic>> _subscriptions =
       <StreamSubscription<dynamic>>[];
 
@@ -31,6 +32,7 @@ class MusicAppController extends ChangeNotifier {
   Duration _position = Duration.zero;
   MusicTab _selectedTab = MusicTab.home;
   LibraryFilter _libraryFilter = LibraryFilter.all;
+  LibrarySort _librarySort = LibrarySort.recent;
   String _searchQuery = '';
   bool _isPlaying = false;
   bool _isImporting = false;
@@ -39,6 +41,7 @@ class MusicAppController extends ChangeNotifier {
 
   MusicTab get selectedTab => _selectedTab;
   LibraryFilter get libraryFilter => _libraryFilter;
+  LibrarySort get librarySort => _librarySort;
   String get searchQuery => _searchQuery;
   bool get isPlaying => _isPlaying;
   bool get isImporting => _isImporting;
@@ -52,6 +55,7 @@ class MusicAppController extends ChangeNotifier {
   Duration get position => _position;
   List<Track> get queue => List<Track>.unmodifiable(_queue);
   String? get statusMessage => _statusMessage;
+  List<String> get recentSearches => List<String>.unmodifiable(_recentSearches);
   int get importedTrackCount => _tracks.length;
   int get collectionCount => importedCollections.length;
   int get likedTracksCount => _likedTrackIds.length;
@@ -90,7 +94,10 @@ class MusicAppController extends ChangeNotifier {
       return null;
     }
 
-    return allTracksCollection;
+    return _currentCollection ??
+        (savedCollections.isNotEmpty ? savedCollections.first : null) ??
+        (recentCollections.isNotEmpty ? recentCollections.first : null) ??
+        importedCollections.first;
   }
 
   MusicCollection get allTracksCollection {
@@ -177,38 +184,141 @@ class MusicAppController extends ChangeNotifier {
       .where((collection) => _savedCollectionIds.contains(collection.id))
       .toList(growable: false);
 
+  List<MusicCollection> get spotlightCollections {
+    final collections = <MusicCollection>[];
+    final seen = <String>{};
+
+    void addMany(Iterable<MusicCollection> source) {
+      for (final collection in source) {
+        if (seen.add(collection.id)) {
+          collections.add(collection);
+        }
+      }
+    }
+
+    addMany(savedCollections);
+    addMany(recentCollections);
+    addMany(importedCollections);
+
+    return collections.take(6).toList(growable: false);
+  }
+
+  List<MusicCollection> get pinnedCollections {
+    final source = savedCollections.isNotEmpty
+        ? savedCollections
+        : recentCollections;
+    if (source.isNotEmpty) {
+      return source.take(4).toList(growable: false);
+    }
+
+    return importedCollections.take(4).toList(growable: false);
+  }
+
+  List<Track> get continueListeningTracks {
+    if (recentPlayedTracks.isNotEmpty) {
+      return recentPlayedTracks.take(6).toList(growable: false);
+    }
+
+    return recentImportedTracks.take(6).toList(growable: false);
+  }
+
+  List<Track> get spotlightTracks {
+    final tracks = <Track>[];
+    final seen = <String>{};
+
+    void addMany(Iterable<Track> source) {
+      for (final track in source) {
+        if (seen.add(track.id)) {
+          tracks.add(track);
+        }
+      }
+    }
+
+    addMany(favoriteTracks);
+    addMany(recentPlayedTracks);
+    addMany(recentImportedTracks);
+
+    return tracks.take(8).toList(growable: false);
+  }
+
   List<Track> get filteredLibraryTracks {
-    return switch (_libraryFilter) {
+    final tracks = switch (_libraryFilter) {
       LibraryFilter.all => importedTracks,
       LibraryFilter.tracks => importedTracks,
       LibraryFilter.folders => const <Track>[],
       LibraryFilter.favorites => favoriteTracks,
     };
+
+    final sorted = List<Track>.from(tracks);
+    switch (_librarySort) {
+      case LibrarySort.recent:
+        sorted.sort((a, b) => b.importedAt.compareTo(a.importedAt));
+        break;
+      case LibrarySort.title:
+        sorted.sort(
+          (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()),
+        );
+        break;
+      case LibrarySort.length:
+        sorted.sort(
+          (a, b) => (b.duration ?? Duration.zero).compareTo(
+            a.duration ?? Duration.zero,
+          ),
+        );
+        break;
+    }
+
+    return sorted;
   }
 
   List<MusicCollection> get filteredLibraryCollections {
-    return switch (_libraryFilter) {
+    final collections = switch (_libraryFilter) {
       LibraryFilter.all => importedCollections,
       LibraryFilter.tracks => const <MusicCollection>[],
       LibraryFilter.folders => importedCollections,
       LibraryFilter.favorites => savedCollections,
     };
+
+    final sorted = List<MusicCollection>.from(collections);
+    switch (_librarySort) {
+      case LibrarySort.recent:
+        sorted.sort((a, b) => b.latestImportAt.compareTo(a.latestImportAt));
+        break;
+      case LibrarySort.title:
+        sorted.sort(
+          (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()),
+        );
+        break;
+      case LibrarySort.length:
+        sorted.sort((a, b) => b.totalDuration.compareTo(a.totalDuration));
+        break;
+    }
+
+    return sorted;
   }
 
   List<Track> get searchTrackResults {
     final query = _normalizedQuery;
     if (query.isEmpty) {
-      return recentImportedTracks.take(6).toList(growable: false);
+      return continueListeningTracks;
     }
 
-    return _tracks
-        .where((track) {
-          final haystack =
-              '${track.title} ${track.artist} ${track.album} ${track.fileName}'
-                  .toLowerCase();
-          return haystack.contains(query);
-        })
-        .toList(growable: false);
+    final matches =
+        _tracks
+            .map(
+              (track) => (track: track, score: _scoreTrackMatch(track, query)),
+            )
+            .where((entry) => entry.score > 0)
+            .toList(growable: false)
+          ..sort((a, b) {
+            final scoreCompare = b.score.compareTo(a.score);
+            if (scoreCompare != 0) {
+              return scoreCompare;
+            }
+            return b.track.importedAt.compareTo(a.track.importedAt);
+          });
+
+    return matches.map((entry) => entry.track).toList(growable: false);
   }
 
   List<MusicCollection> get searchCollectionResults {
@@ -219,14 +329,94 @@ class MusicAppController extends ChangeNotifier {
       return collections.take(6).toList(growable: false);
     }
 
-    return collections
-        .where((collection) {
-          final haystack =
-              '${collection.title} ${collection.subtitle} ${collection.description}'
-                  .toLowerCase();
-          return haystack.contains(query);
-        })
-        .toList(growable: false);
+    final matches =
+        collections
+            .map(
+              (collection) => (
+                collection: collection,
+                score: _scoreCollectionMatch(collection, query),
+              ),
+            )
+            .where((entry) => entry.score > 0)
+            .toList(growable: false)
+          ..sort((a, b) {
+            final scoreCompare = b.score.compareTo(a.score);
+            if (scoreCompare != 0) {
+              return scoreCompare;
+            }
+            return b.collection.latestImportAt.compareTo(
+              a.collection.latestImportAt,
+            );
+          });
+
+    return matches.map((entry) => entry.collection).toList(growable: false);
+  }
+
+  List<String> get trendingSearches {
+    final suggestions = <String>[];
+    final seen = <String>{};
+
+    void add(String value) {
+      final normalized = value.trim();
+      if (normalized.isEmpty) {
+        return;
+      }
+      final key = normalized.toLowerCase();
+      if (seen.add(key)) {
+        suggestions.add(normalized);
+      }
+    }
+
+    for (final value in _recentSearches) {
+      add(value);
+    }
+
+    for (final track in recentPlayedTracks.take(4)) {
+      add(track.title);
+      add(track.artist);
+    }
+
+    for (final collection in importedCollections.take(4)) {
+      add(collection.title);
+    }
+
+    return suggestions.take(8).toList(growable: false);
+  }
+
+  List<String> get browseSuggestions {
+    final suggestions = <String>[];
+    final seen = <String>{};
+
+    void add(String value) {
+      final normalized = value.trim();
+      if (normalized.isEmpty) {
+        return;
+      }
+      final key = normalized.toLowerCase();
+      if (seen.add(key)) {
+        suggestions.add(normalized);
+      }
+    }
+
+    for (final track in recentImportedTracks.take(4)) {
+      add(track.artist);
+      add(track.album);
+    }
+
+    for (final collection in importedCollections.take(4)) {
+      add(collection.title);
+    }
+
+    for (final track in importedTracks) {
+      if (track.fileExtension case final extension?) {
+        add(extension.toUpperCase());
+      }
+      if (suggestions.length >= 8) {
+        break;
+      }
+    }
+
+    return suggestions.take(8).toList(growable: false);
   }
 
   List<Track> get upNext {
@@ -272,6 +462,15 @@ class MusicAppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setLibrarySort(LibrarySort sort) {
+    if (_librarySort == sort) {
+      return;
+    }
+
+    _librarySort = sort;
+    notifyListeners();
+  }
+
   void updateSearchQuery(String value) {
     if (_searchQuery == value) {
       return;
@@ -279,6 +478,60 @@ class MusicAppController extends ChangeNotifier {
 
     _searchQuery = value;
     notifyListeners();
+  }
+
+  void clearSearch() {
+    if (_searchQuery.isEmpty) {
+      return;
+    }
+
+    _searchQuery = '';
+    notifyListeners();
+  }
+
+  void submitSearch([String? value]) {
+    final candidate = (value ?? _searchQuery).trim();
+    if (candidate.isEmpty) {
+      return;
+    }
+
+    _rememberSearch(candidate);
+    notifyListeners();
+  }
+
+  void applySearchSuggestion(String value) {
+    final normalized = value.trim();
+    if (normalized.isEmpty) {
+      return;
+    }
+
+    _searchQuery = normalized;
+    _rememberSearch(normalized);
+    notifyListeners();
+  }
+
+  void openLibraryFilter(LibraryFilter filter) {
+    final selectedChanged = _selectedTab != MusicTab.library;
+    final filterChanged = _libraryFilter != filter;
+
+    _selectedTab = MusicTab.library;
+    _libraryFilter = filter;
+
+    if (selectedChanged || filterChanged) {
+      notifyListeners();
+    }
+  }
+
+  void openSearch([String query = '']) {
+    final selectedChanged = _selectedTab != MusicTab.search;
+    final queryChanged = _searchQuery != query;
+
+    _selectedTab = MusicTab.search;
+    _searchQuery = query;
+
+    if (selectedChanged || queryChanged) {
+      notifyListeners();
+    }
   }
 
   void toggleSavedCollection(String collectionId) {
@@ -417,6 +670,27 @@ class MusicAppController extends ChangeNotifier {
     );
   }
 
+  Future<void> playFavoriteTracks() async {
+    if (favoriteTracks.isEmpty) {
+      return;
+    }
+
+    await _loadQueue(
+      favoriteTracks,
+      initialIndex: 0,
+      collection: MusicCollection(
+        id: 'favorites',
+        title: 'Liked Songs',
+        subtitle: '${favoriteTracks.length} liked tracks',
+        description: 'Tracks you have liked in your local library.',
+        kind: MusicCollectionKind.playlist,
+        palette: favoriteTracks.first.palette,
+        tracks: favoriteTracks,
+      ),
+      autoplay: true,
+    );
+  }
+
   Future<void> seekToFraction(double fraction) async {
     final duration = _currentTrack?.duration;
     if (_currentTrack == null || duration == null) {
@@ -523,6 +797,84 @@ class MusicAppController extends ChangeNotifier {
     }
 
     return null;
+  }
+
+  int _scoreTrackMatch(Track track, String query) {
+    var score = 0;
+    final title = track.title.toLowerCase();
+    final artist = track.artist.toLowerCase();
+    final album = track.album.toLowerCase();
+    final fileName = track.fileName.toLowerCase();
+
+    if (title.startsWith(query)) {
+      score += 120;
+    } else if (title.contains(query)) {
+      score += 90;
+    }
+
+    if (artist.startsWith(query)) {
+      score += 80;
+    } else if (artist.contains(query)) {
+      score += 60;
+    }
+
+    if (album.startsWith(query)) {
+      score += 55;
+    } else if (album.contains(query)) {
+      score += 40;
+    }
+
+    if (fileName.contains(query)) {
+      score += 24;
+    }
+
+    if (_likedTrackIds.contains(track.id)) {
+      score += 8;
+    }
+
+    if (_recentTrackIds.contains(track.id)) {
+      score += 6;
+    }
+
+    return score;
+  }
+
+  int _scoreCollectionMatch(MusicCollection collection, String query) {
+    var score = 0;
+    final title = collection.title.toLowerCase();
+    final subtitle = collection.subtitle.toLowerCase();
+    final description = collection.description.toLowerCase();
+
+    if (title.startsWith(query)) {
+      score += 110;
+    } else if (title.contains(query)) {
+      score += 80;
+    }
+
+    if (subtitle.contains(query)) {
+      score += 34;
+    }
+
+    if (description.contains(query)) {
+      score += 22;
+    }
+
+    if (_savedCollectionIds.contains(collection.id)) {
+      score += 6;
+    }
+
+    return score;
+  }
+
+  void _rememberSearch(String value) {
+    _recentSearches.removeWhere(
+      (entry) => entry.toLowerCase() == value.toLowerCase(),
+    );
+    _recentSearches.insert(0, value);
+
+    if (_recentSearches.length > 8) {
+      _recentSearches.removeRange(8, _recentSearches.length);
+    }
   }
 
   String get _normalizedQuery => _searchQuery.trim().toLowerCase();

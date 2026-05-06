@@ -27,6 +27,16 @@ extension LibraryFilterX on LibraryFilter {
   };
 }
 
+enum LibrarySort { recent, title, length }
+
+extension LibrarySortX on LibrarySort {
+  String get label => switch (this) {
+    LibrarySort.recent => 'Recent',
+    LibrarySort.title => 'A-Z',
+    LibrarySort.length => 'Length',
+  };
+}
+
 enum MusicCollectionKind { playlist, folder }
 
 extension MusicCollectionKindX on MusicCollectionKind {

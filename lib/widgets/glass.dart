@@ -34,33 +34,37 @@ class LiquidBackdrop extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFF07111E), Color(0xFF081827), Color(0xFF06101B)],
+          colors: [
+            LiquidPalette.background,
+            Color(0xFF0B0D12),
+            LiquidPalette.ink,
+          ],
         ),
       ),
       child: Stack(
         children: [
           const Positioned(
-            top: -80,
-            left: -30,
+            top: -100,
+            left: -40,
             child: _BlurOrb(
-              size: 280,
-              colors: [Color(0x804CC9D9), Color(0x40113D61)],
+              size: 320,
+              colors: [Color(0x661ED760), Color(0x001ED760)],
             ),
           ),
           const Positioned(
-            top: 180,
-            right: -80,
+            top: 160,
+            right: -110,
             child: _BlurOrb(
-              size: 360,
-              colors: [Color(0x66FF8D78), Color(0x221D2442)],
+              size: 380,
+              colors: [Color(0x44F4A259), Color(0x00103222)],
             ),
           ),
           const Positioned(
-            bottom: -120,
-            left: 80,
+            bottom: -140,
+            left: 120,
             child: _BlurOrb(
               size: 420,
-              colors: [Color(0x669FE7D7), Color(0x22122337)],
+              colors: [Color(0x332D7EFF), Color(0x00181B22)],
             ),
           ),
           Positioned.fill(
@@ -70,9 +74,9 @@ class LiquidBackdrop extends StatelessWidget {
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    Colors.white.withValues(alpha: 0.02),
+                    Colors.white.withValues(alpha: 0.03),
                     Colors.transparent,
-                    Colors.black.withValues(alpha: 0.10),
+                    Colors.black.withValues(alpha: 0.24),
                   ],
                 ),
               ),
@@ -142,7 +146,7 @@ class GlassPanel extends StatelessWidget {
           decoration: BoxDecoration(
             borderRadius: radius,
             border: Border.all(
-              color: borderColor ?? Colors.white.withValues(alpha: 0.16),
+              color: borderColor ?? Colors.white.withValues(alpha: 0.08),
             ),
             gradient: LinearGradient(
               begin: Alignment.topLeft,
@@ -150,15 +154,15 @@ class GlassPanel extends StatelessWidget {
               colors:
                   tintColors ??
                   [
-                    Colors.white.withValues(alpha: 0.18),
-                    Colors.white.withValues(alpha: 0.06),
+                    LiquidPalette.surfaceRaised.withValues(alpha: 0.94),
+                    LiquidPalette.surface.withValues(alpha: 0.92),
                   ],
             ),
             boxShadow: withShadow
                 ? [
                     BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.22),
-                      blurRadius: 32,
+                      color: Colors.black.withValues(alpha: 0.34),
+                      blurRadius: 28,
                       offset: const Offset(0, 18),
                     ),
                   ]
@@ -208,16 +212,16 @@ class GlassPill extends StatelessWidget {
       borderRadius: BorderRadius.circular(999),
       tintColors: selected
           ? [
-              LiquidPalette.aqua.withValues(alpha: 0.42),
-              LiquidPalette.mint.withValues(alpha: 0.16),
+              LiquidPalette.aqua.withValues(alpha: 0.28),
+              LiquidPalette.deepCyan.withValues(alpha: 0.94),
             ]
           : [
-              Colors.white.withValues(alpha: 0.14),
-              Colors.white.withValues(alpha: 0.05),
+              LiquidPalette.surfaceSoft.withValues(alpha: 0.78),
+              LiquidPalette.surface.withValues(alpha: 0.88),
             ],
       borderColor: selected
-          ? Colors.white.withValues(alpha: 0.28)
-          : Colors.white.withValues(alpha: 0.12),
+          ? LiquidPalette.mint.withValues(alpha: 0.42)
+          : Colors.white.withValues(alpha: 0.06),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -263,12 +267,12 @@ class GlassIconButton extends StatelessWidget {
         borderRadius: BorderRadius.circular(size / 2),
         tintColors: selected
             ? [
-                LiquidPalette.aqua.withValues(alpha: 0.44),
-                LiquidPalette.coral.withValues(alpha: 0.18),
+                LiquidPalette.aqua.withValues(alpha: 0.92),
+                LiquidPalette.mint.withValues(alpha: 0.74),
               ]
             : [
-                Colors.white.withValues(alpha: 0.16),
-                Colors.white.withValues(alpha: 0.06),
+                LiquidPalette.surfaceSoft.withValues(alpha: 0.82),
+                LiquidPalette.surface.withValues(alpha: 0.92),
               ],
         child: Icon(icon, size: iconSize),
       ),
@@ -458,8 +462,8 @@ class TrackRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       borderRadius: BorderRadius.circular(24),
       tintColors: [
-        Colors.white.withValues(alpha: 0.12),
-        Colors.white.withValues(alpha: 0.04),
+        LiquidPalette.surfaceSoft.withValues(alpha: 0.72),
+        LiquidPalette.surface.withValues(alpha: 0.90),
       ],
       withShadow: false,
       child: Row(
