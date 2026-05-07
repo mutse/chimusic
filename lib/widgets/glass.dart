@@ -19,7 +19,7 @@ EdgeInsets pagePadding(BuildContext context, {double bottom = 180}) {
       ? 28.0
       : 20.0;
 
-  return EdgeInsets.fromLTRB(horizontal, 24, horizontal, bottom);
+  return EdgeInsets.fromLTRB(horizontal, 28, horizontal, bottom);
 }
 
 class LiquidBackdrop extends StatelessWidget {
@@ -34,33 +34,37 @@ class LiquidBackdrop extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFF07111E), Color(0xFF081827), Color(0xFF06101B)],
+          colors: [
+            LiquidPalette.background,
+            Color(0xFF0B0D12),
+            LiquidPalette.ink,
+          ],
         ),
       ),
       child: Stack(
         children: [
           const Positioned(
-            top: -80,
+            top: -90,
             left: -30,
             child: _BlurOrb(
-              size: 280,
-              colors: [Color(0x804CC9D9), Color(0x40113D61)],
+              size: 260,
+              colors: [Color(0x331ED760), Color(0x001ED760)],
             ),
           ),
           const Positioned(
-            top: 180,
-            right: -80,
+            top: 170,
+            right: -90,
             child: _BlurOrb(
-              size: 360,
-              colors: [Color(0x66FF8D78), Color(0x221D2442)],
+              size: 300,
+              colors: [Color(0x22F4A259), Color(0x00103222)],
             ),
           ),
           const Positioned(
             bottom: -120,
-            left: 80,
+            left: 140,
             child: _BlurOrb(
-              size: 420,
-              colors: [Color(0x669FE7D7), Color(0x22122337)],
+              size: 320,
+              colors: [Color(0x1A2D7EFF), Color(0x00181B22)],
             ),
           ),
           Positioned.fill(
@@ -70,9 +74,9 @@ class LiquidBackdrop extends StatelessWidget {
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    Colors.white.withValues(alpha: 0.02),
+                    Colors.white.withValues(alpha: 0.03),
                     Colors.transparent,
-                    Colors.black.withValues(alpha: 0.10),
+                    Colors.black.withValues(alpha: 0.18),
                   ],
                 ),
               ),
@@ -118,7 +122,7 @@ class GlassPanel extends StatelessWidget {
     this.onTap,
     this.tintColors,
     this.borderColor,
-    this.blur = 24,
+    this.blur = 18,
     this.withShadow = true,
   });
 
@@ -133,7 +137,7 @@ class GlassPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final radius = borderRadius ?? BorderRadius.circular(30);
+    final radius = borderRadius ?? BorderRadius.circular(28);
     final content = ClipRRect(
       borderRadius: radius,
       child: BackdropFilter(
@@ -142,7 +146,7 @@ class GlassPanel extends StatelessWidget {
           decoration: BoxDecoration(
             borderRadius: radius,
             border: Border.all(
-              color: borderColor ?? Colors.white.withValues(alpha: 0.16),
+              color: borderColor ?? Colors.white.withValues(alpha: 0.06),
             ),
             gradient: LinearGradient(
               begin: Alignment.topLeft,
@@ -150,16 +154,16 @@ class GlassPanel extends StatelessWidget {
               colors:
                   tintColors ??
                   [
-                    Colors.white.withValues(alpha: 0.18),
-                    Colors.white.withValues(alpha: 0.06),
+                    LiquidPalette.surfaceRaised.withValues(alpha: 0.96),
+                    LiquidPalette.surface.withValues(alpha: 0.94),
                   ],
             ),
             boxShadow: withShadow
                 ? [
                     BoxShadow(
                       color: Colors.black.withValues(alpha: 0.22),
-                      blurRadius: 32,
-                      offset: const Offset(0, 18),
+                      blurRadius: 18,
+                      offset: const Offset(0, 10),
                     ),
                   ]
                 : null,
@@ -208,16 +212,16 @@ class GlassPill extends StatelessWidget {
       borderRadius: BorderRadius.circular(999),
       tintColors: selected
           ? [
-              LiquidPalette.aqua.withValues(alpha: 0.42),
-              LiquidPalette.mint.withValues(alpha: 0.16),
+              LiquidPalette.aqua.withValues(alpha: 0.18),
+              LiquidPalette.deepCyan.withValues(alpha: 0.86),
             ]
           : [
-              Colors.white.withValues(alpha: 0.14),
-              Colors.white.withValues(alpha: 0.05),
+              LiquidPalette.surfaceSoft.withValues(alpha: 0.58),
+              LiquidPalette.surface.withValues(alpha: 0.90),
             ],
       borderColor: selected
-          ? Colors.white.withValues(alpha: 0.28)
-          : Colors.white.withValues(alpha: 0.12),
+          ? LiquidPalette.mint.withValues(alpha: 0.24)
+          : Colors.white.withValues(alpha: 0.06),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -263,12 +267,12 @@ class GlassIconButton extends StatelessWidget {
         borderRadius: BorderRadius.circular(size / 2),
         tintColors: selected
             ? [
-                LiquidPalette.aqua.withValues(alpha: 0.44),
-                LiquidPalette.coral.withValues(alpha: 0.18),
+                LiquidPalette.aqua.withValues(alpha: 0.88),
+                LiquidPalette.mint.withValues(alpha: 0.64),
               ]
             : [
-                Colors.white.withValues(alpha: 0.16),
-                Colors.white.withValues(alpha: 0.06),
+                LiquidPalette.surfaceSoft.withValues(alpha: 0.62),
+                LiquidPalette.surface.withValues(alpha: 0.92),
               ],
         child: Icon(icon, size: iconSize),
       ),
@@ -291,7 +295,7 @@ class SectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(
           child: Column(
@@ -307,7 +311,7 @@ class SectionHeader extends StatelessWidget {
               Text(
                 subtitle,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Colors.white.withValues(alpha: 0.66),
+                  color: Colors.white.withValues(alpha: 0.58),
                 ),
               ),
             ],
@@ -315,6 +319,43 @@ class SectionHeader extends StatelessWidget {
         ),
         ...?trailing == null ? null : [trailing!],
       ],
+    );
+  }
+}
+
+class SectionCard extends StatelessWidget {
+  const SectionCard({
+    super.key,
+    required this.title,
+    required this.subtitle,
+    required this.child,
+    this.trailing,
+    this.padding = const EdgeInsets.all(20),
+  });
+
+  final String title;
+  final String subtitle;
+  final Widget child;
+  final Widget? trailing;
+  final EdgeInsetsGeometry padding;
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassPanel(
+      padding: padding,
+      borderRadius: BorderRadius.circular(30),
+      tintColors: [
+        LiquidPalette.surfaceRaised.withValues(alpha: 0.95),
+        LiquidPalette.surface.withValues(alpha: 0.94),
+      ],
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SectionHeader(title: title, subtitle: subtitle, trailing: trailing),
+          const SizedBox(height: 18),
+          child,
+        ],
+      ),
     );
   }
 }
@@ -353,9 +394,9 @@ class ArtworkCover extends StatelessWidget {
         ),
         boxShadow: [
           BoxShadow(
-            color: palette.last.withValues(alpha: 0.28),
-            blurRadius: 28,
-            offset: const Offset(0, 16),
+            color: palette.last.withValues(alpha: 0.18),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
           ),
         ],
       ),
@@ -371,7 +412,7 @@ class ArtworkCover extends StatelessWidget {
                 height: size * 0.62,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: Colors.white.withValues(alpha: 0.20),
+                  color: Colors.white.withValues(alpha: 0.14),
                 ),
               ),
             ),
@@ -383,7 +424,7 @@ class ArtworkCover extends StatelessWidget {
                 height: size * 0.68,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: Colors.black.withValues(alpha: 0.12),
+                  color: Colors.black.withValues(alpha: 0.08),
                 ),
               ),
             ),
@@ -396,7 +437,7 @@ class ArtworkCover extends StatelessWidget {
                     colors: [
                       Colors.white.withValues(alpha: 0.22),
                       Colors.transparent,
-                      Colors.black.withValues(alpha: 0.18),
+                      Colors.black.withValues(alpha: 0.12),
                     ],
                   ),
                 ),
@@ -455,11 +496,11 @@ class TrackRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return GlassPanel(
       onTap: onTap,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       borderRadius: BorderRadius.circular(24),
       tintColors: [
-        Colors.white.withValues(alpha: 0.12),
-        Colors.white.withValues(alpha: 0.04),
+        LiquidPalette.surfaceSoft.withValues(alpha: 0.58),
+        LiquidPalette.surface.withValues(alpha: 0.92),
       ],
       withShadow: false,
       child: Row(

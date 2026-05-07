@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../data/music_session_store.dart';
 import '../state/chimusic_controller.dart';
 import '../state/chimusic_scope.dart';
 import '../widgets/app_shell.dart';
@@ -17,12 +18,16 @@ class ChiMusicRoot extends StatefulWidget {
 class _ChiMusicRootState extends State<ChiMusicRoot> {
   late final MusicAppController _controller;
   late final bool _ownsController;
+  late final Future<void>? _restoreFuture;
 
   @override
   void initState() {
     super.initState();
     _ownsController = widget.controller == null;
-    _controller = widget.controller ?? MusicAppController();
+    _controller =
+        widget.controller ??
+        MusicAppController(sessionStore: SharedPreferencesMusicSessionStore());
+    _restoreFuture = _ownsController ? _controller.restoreSession() : null;
   }
 
   @override
@@ -41,8 +46,31 @@ class _ChiMusicRootState extends State<ChiMusicRoot> {
         debugShowCheckedModeBanner: false,
         title: 'ChiMusic',
         theme: buildChiMusicTheme(),
-        home: const AppShell(),
+        home: _restoreFuture == null
+            ? const AppShell()
+            : FutureBuilder<void>(
+                future: _restoreFuture,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState != ConnectionState.done) {
+                    return const _StartupScreen();
+                  }
+
+                  return const AppShell();
+                },
+              ),
       ),
+    );
+  }
+}
+
+class _StartupScreen extends StatelessWidget {
+  const _StartupScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      backgroundColor: Colors.transparent,
+      body: Center(child: CircularProgressIndicator(strokeWidth: 2.6)),
     );
   }
 }

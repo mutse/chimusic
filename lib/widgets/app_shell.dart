@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../app/chimusic_theme.dart';
 import '../models/music_models.dart';
+import '../screens/collection_detail_page.dart';
 import '../screens/home_screen.dart';
 import '../screens/library_screen.dart';
 import '../screens/now_playing_sheet.dart';
@@ -102,9 +103,14 @@ class _Sidebar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = ChiMusicScope.watch(context);
+    final pinned = controller.pinnedCollections;
 
     return GlassPanel(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+      tintColors: [
+        LiquidPalette.surface.withValues(alpha: 0.98),
+        LiquidPalette.surfaceRaised.withValues(alpha: 0.94),
+      ],
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -117,8 +123,8 @@ class _Sidebar extends StatelessWidget {
                   shape: BoxShape.circle,
                   gradient: LinearGradient(
                     colors: [
-                      LiquidPalette.aqua.withValues(alpha: 0.90),
-                      LiquidPalette.mint.withValues(alpha: 0.74),
+                      LiquidPalette.aqua.withValues(alpha: 0.96),
+                      LiquidPalette.mint.withValues(alpha: 0.82),
                     ],
                   ),
                 ),
@@ -136,9 +142,9 @@ class _Sidebar extends StatelessWidget {
                     style: Theme.of(context).textTheme.headlineSmall,
                   ),
                   Text(
-                    'Local player',
+                    'Music for your files',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Colors.white.withValues(alpha: 0.58),
+                      color: Colors.white.withValues(alpha: 0.54),
                     ),
                   ),
                 ],
@@ -146,35 +152,53 @@ class _Sidebar extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 24),
+          Text(
+            'Menu',
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+              color: Colors.white.withValues(alpha: 0.42),
+            ),
+          ),
+          const SizedBox(height: 12),
           for (final tab in MusicTab.values) ...[
             _SidebarDestination(tab: tab),
             const SizedBox(height: 10),
           ],
           const SizedBox(height: 24),
           Text(
-            'Import',
+            'Your Library',
             style: Theme.of(context).textTheme.labelLarge?.copyWith(
-              color: Colors.white.withValues(alpha: 0.62),
+              color: Colors.white.withValues(alpha: 0.42),
             ),
           ),
-          const SizedBox(height: 10),
-          ImportMusicActions(controller: controller, compact: true),
+          const SizedBox(height: 12),
+          if (pinned.isEmpty)
+            Text(
+              'Save folders or like tracks to build quick access here.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Colors.white.withValues(alpha: 0.56),
+              ),
+            )
+          else
+            for (final collection in pinned) ...[
+              _SidebarCollectionLink(collection: collection),
+              const SizedBox(height: 10),
+            ],
           const Spacer(),
           GlassPanel(
             padding: const EdgeInsets.all(16),
             borderRadius: BorderRadius.circular(24),
             tintColors: [
-              Colors.white.withValues(alpha: 0.12),
-              Colors.white.withValues(alpha: 0.05),
+              LiquidPalette.surfaceSoft.withValues(alpha: 0.62),
+              LiquidPalette.surfaceRaised.withValues(alpha: 0.92),
             ],
             withShadow: false,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Library',
+                  'Session',
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.60),
+                    color: Colors.white.withValues(alpha: 0.50),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -189,6 +213,8 @@ class _Sidebar extends StatelessWidget {
                     color: Colors.white.withValues(alpha: 0.58),
                   ),
                 ),
+                const SizedBox(height: 14),
+                ImportMusicActions(controller: controller, compact: true),
               ],
             ),
           ),
@@ -214,17 +240,22 @@ class _SidebarDestination extends StatelessWidget {
       borderRadius: BorderRadius.circular(22),
       tintColors: selected
           ? [
-              LiquidPalette.aqua.withValues(alpha: 0.42),
-              LiquidPalette.mint.withValues(alpha: 0.16),
+              LiquidPalette.deepCyan.withValues(alpha: 0.84),
+              LiquidPalette.aqua.withValues(alpha: 0.14),
             ]
           : [
-              Colors.white.withValues(alpha: 0.10),
-              Colors.white.withValues(alpha: 0.04),
+              LiquidPalette.surfaceSoft.withValues(alpha: 0.60),
+              LiquidPalette.surface.withValues(alpha: 0.92),
             ],
       withShadow: false,
       child: Row(
         children: [
-          Icon(tab.icon),
+          Icon(
+            tab.icon,
+            color: selected
+                ? LiquidPalette.mint
+                : Colors.white.withValues(alpha: 0.72),
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
@@ -242,6 +273,61 @@ class _SidebarDestination extends StatelessWidget {
   }
 }
 
+class _SidebarCollectionLink extends StatelessWidget {
+  const _SidebarCollectionLink({required this.collection});
+
+  final MusicCollection collection;
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassPanel(
+      onTap: () =>
+          Navigator.of(context).push(CollectionDetailPage.route(collection)),
+      padding: const EdgeInsets.all(12),
+      borderRadius: BorderRadius.circular(22),
+      tintColors: [
+        LiquidPalette.surfaceSoft.withValues(alpha: 0.60),
+        LiquidPalette.surface.withValues(alpha: 0.92),
+      ],
+      withShadow: false,
+      child: Row(
+        children: [
+          ArtworkCover(
+            title: collection.title,
+            palette: collection.palette,
+            size: 44,
+            borderRadius: BorderRadius.circular(14),
+            icon: Icons.folder_rounded,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  collection.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  collection.subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Colors.white.withValues(alpha: 0.52),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _RightDock extends StatelessWidget {
   const _RightDock();
 
@@ -249,44 +335,165 @@ class _RightDock extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = ChiMusicScope.watch(context);
     final track = controller.currentTrack;
-    final collection = track == null
-        ? null
-        : controller.collectionForTrack(track);
+    final collection =
+        controller.currentCollection ??
+        (track == null ? null : controller.collectionForTrack(track));
+    final pinned = controller.pinnedCollections;
 
     return Column(
       children: [
         if (track == null)
           GlassPanel(
-            padding: const EdgeInsets.all(18),
+            padding: const EdgeInsets.all(20),
+            borderRadius: BorderRadius.circular(30),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Ready to import',
+                  'Ready to build your queue',
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  'Choose local audio files and this dock will switch to queue and current item details.',
+                  'Import files or a folder and this dock becomes a live music control surface with current playback and queue context.',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: Colors.white.withValues(alpha: 0.64),
                   ),
                 ),
                 const SizedBox(height: 14),
                 ImportMusicActions(controller: controller, compact: true),
+                if (pinned.isNotEmpty) ...[
+                  const SizedBox(height: 18),
+                  Text(
+                    'Pinned',
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: Colors.white.withValues(alpha: 0.50),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  _QueueRow(
+                    track: pinned.first.tracks.first,
+                    queueCollection: pinned.first,
+                  ),
+                ],
               ],
             ),
           )
         else ...[
           GlassPanel(
             padding: const EdgeInsets.all(18),
+            borderRadius: BorderRadius.circular(30),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Playing From',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    ArtworkCover(
+                      title: collection?.title ?? track.album,
+                      palette: collection?.palette ?? track.palette,
+                      size: 82,
+                      showTitle: true,
+                      icon: collection?.kind == MusicCollectionKind.folder
+                          ? Icons.folder_rounded
+                          : Icons.queue_music_rounded,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            collection?.title ?? 'Current queue',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            '${controller.queue.length} tracks • ${collection?.kind.label ?? 'Queue'}',
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(
+                                  color: Colors.white.withValues(alpha: 0.58),
+                                ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: GlassPanel(
+                        onTap: collection == null
+                            ? null
+                            : () => Navigator.of(
+                                context,
+                              ).push(CollectionDetailPage.route(collection)),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 12,
+                        ),
+                        borderRadius: BorderRadius.circular(20),
+                        tintColors: [
+                          LiquidPalette.surfaceSoft.withValues(alpha: 0.60),
+                          LiquidPalette.surface.withValues(alpha: 0.92),
+                        ],
+                        withShadow: false,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.arrow_forward_rounded, size: 18),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Open Queue',
+                              style: Theme.of(context).textTheme.titleSmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    GlassIconButton(
+                      icon:
+                          collection != null &&
+                              controller.isCollectionSaved(collection.id)
+                          ? Icons.bookmark_rounded
+                          : Icons.bookmark_border_rounded,
+                      selected:
+                          collection != null &&
+                          controller.isCollectionSaved(collection.id),
+                      onTap: collection == null
+                          ? () {}
+                          : () =>
+                                controller.toggleSavedCollection(collection.id),
+                      size: 48,
+                      iconSize: 20,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          GlassPanel(
+            padding: const EdgeInsets.all(18),
+            borderRadius: BorderRadius.circular(30),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('Up Next', style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: 10),
                 Text(
-                  collection?.title ?? 'Current queue',
+                  controller.upNext.isEmpty
+                      ? 'This queue ends with the current track.'
+                      : 'Next up from your active listening flow.',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: Colors.white.withValues(alpha: 0.64),
                   ),
@@ -294,9 +501,9 @@ class _RightDock extends StatelessWidget {
                 const SizedBox(height: 14),
                 if (controller.upNext.isEmpty)
                   Text(
-                    'No more queued tracks after the current one.',
+                    'Nothing is queued after this track yet. Pick another song from Home, Search, or Library to keep playback flowing.',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Colors.white.withValues(alpha: 0.64),
+                      color: Colors.white.withValues(alpha: 0.62),
                     ),
                   )
                 else
@@ -305,7 +512,10 @@ class _RightDock extends StatelessWidget {
                     index < controller.upNext.length;
                     index++
                   ) ...[
-                    _QueueRow(track: controller.upNext[index]),
+                    _QueueRow(
+                      track: controller.upNext[index],
+                      queueCollection: collection,
+                    ),
                     if (index != controller.upNext.length - 1)
                       const SizedBox(height: 10),
                   ],
@@ -315,59 +525,8 @@ class _RightDock extends StatelessWidget {
           const SizedBox(height: 14),
           GlassPanel(
             padding: const EdgeInsets.all(18),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Current Detail',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 14),
-                Row(
-                  children: [
-                    ArtworkCover(
-                      title: track.album,
-                      palette: track.palette,
-                      size: 82,
-                      showTitle: true,
-                      icon: Icons.music_note_rounded,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            track.title,
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            track.artist,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(
-                                  color: Colors.white.withValues(alpha: 0.62),
-                                ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            track.fileName,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(
-                                  color: Colors.white.withValues(alpha: 0.48),
-                                ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+            borderRadius: BorderRadius.circular(30),
+            child: _CurrentTrackCard(track: track, collection: collection),
           ),
         ],
       ],
@@ -375,10 +534,97 @@ class _RightDock extends StatelessWidget {
   }
 }
 
-class _QueueRow extends StatelessWidget {
-  const _QueueRow({required this.track});
+class _CurrentTrackCard extends StatelessWidget {
+  const _CurrentTrackCard({required this.track, required this.collection});
 
   final Track track;
+  final MusicCollection? collection;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = ChiMusicScope.watch(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Current Detail', style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            ArtworkCover(
+              title: track.album,
+              palette: track.palette,
+              size: 82,
+              showTitle: true,
+              icon: Icons.music_note_rounded,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    track.title,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    track.artist,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Colors.white.withValues(alpha: 0.62),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    collection?.title ?? track.fileName,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Colors.white.withValues(alpha: 0.48),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            GlassIconButton(
+              icon: controller.isTrackLiked(track.id)
+                  ? Icons.favorite_rounded
+                  : Icons.favorite_border_rounded,
+              onTap: () => controller.toggleLikedTrack(track.id),
+              selected: controller.isTrackLiked(track.id),
+              size: 42,
+              iconSize: 18,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                track.fileName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Colors.white.withValues(alpha: 0.50),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _QueueRow extends StatelessWidget {
+  const _QueueRow({required this.track, this.queueCollection});
+
+  final Track track;
+  final MusicCollection? queueCollection;
 
   @override
   Widget build(BuildContext context) {
@@ -388,14 +634,14 @@ class _QueueRow extends StatelessWidget {
       onTap: () {
         controller.playTrack(
           track,
-          collection: controller.collectionForTrack(track),
+          collection: queueCollection ?? controller.collectionForTrack(track),
         );
       },
       padding: const EdgeInsets.all(12),
       borderRadius: BorderRadius.circular(22),
       tintColors: [
-        Colors.white.withValues(alpha: 0.10),
-        Colors.white.withValues(alpha: 0.04),
+        LiquidPalette.surfaceSoft.withValues(alpha: 0.60),
+        LiquidPalette.surface.withValues(alpha: 0.92),
       ],
       withShadow: false,
       child: Row(
@@ -479,12 +725,12 @@ class _BottomNavigationItem extends StatelessWidget {
       borderRadius: BorderRadius.circular(22),
       tintColors: selected
           ? [
-              LiquidPalette.aqua.withValues(alpha: 0.42),
-              LiquidPalette.mint.withValues(alpha: 0.16),
+              LiquidPalette.deepCyan.withValues(alpha: 0.84),
+              LiquidPalette.aqua.withValues(alpha: 0.14),
             ]
           : [
-              Colors.white.withValues(alpha: 0.10),
-              Colors.white.withValues(alpha: 0.04),
+              LiquidPalette.surfaceSoft.withValues(alpha: 0.60),
+              LiquidPalette.surface.withValues(alpha: 0.92),
             ],
       withShadow: false,
       child: Column(
@@ -517,7 +763,8 @@ class _MiniPlayerBar extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
-    final collection = controller.collectionForTrack(track);
+    final collection =
+        controller.currentCollection ?? controller.collectionForTrack(track);
     final narrow = MediaQuery.sizeOf(context).width < 470;
 
     return GlassPanel(
