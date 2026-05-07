@@ -188,8 +188,8 @@ class _Sidebar extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             borderRadius: BorderRadius.circular(24),
             tintColors: [
-              LiquidPalette.surfaceSoft.withValues(alpha: 0.76),
-              LiquidPalette.surfaceRaised.withValues(alpha: 0.90),
+              LiquidPalette.surfaceSoft.withValues(alpha: 0.62),
+              LiquidPalette.surfaceRaised.withValues(alpha: 0.92),
             ],
             withShadow: false,
             child: Column(
@@ -240,11 +240,11 @@ class _SidebarDestination extends StatelessWidget {
       borderRadius: BorderRadius.circular(22),
       tintColors: selected
           ? [
-              LiquidPalette.deepCyan.withValues(alpha: 0.98),
-              LiquidPalette.aqua.withValues(alpha: 0.22),
+              LiquidPalette.deepCyan.withValues(alpha: 0.84),
+              LiquidPalette.aqua.withValues(alpha: 0.14),
             ]
           : [
-              LiquidPalette.surfaceSoft.withValues(alpha: 0.76),
+              LiquidPalette.surfaceSoft.withValues(alpha: 0.60),
               LiquidPalette.surface.withValues(alpha: 0.92),
             ],
       withShadow: false,
@@ -286,7 +286,7 @@ class _SidebarCollectionLink extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       borderRadius: BorderRadius.circular(22),
       tintColors: [
-        LiquidPalette.surfaceSoft.withValues(alpha: 0.74),
+        LiquidPalette.surfaceSoft.withValues(alpha: 0.60),
         LiquidPalette.surface.withValues(alpha: 0.92),
       ],
       withShadow: false,
@@ -442,7 +442,7 @@ class _RightDock extends StatelessWidget {
                         ),
                         borderRadius: BorderRadius.circular(20),
                         tintColors: [
-                          LiquidPalette.surfaceSoft.withValues(alpha: 0.76),
+                          LiquidPalette.surfaceSoft.withValues(alpha: 0.60),
                           LiquidPalette.surface.withValues(alpha: 0.92),
                         ],
                         withShadow: false,
@@ -640,7 +640,7 @@ class _QueueRow extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       borderRadius: BorderRadius.circular(22),
       tintColors: [
-        LiquidPalette.surfaceSoft.withValues(alpha: 0.76),
+        LiquidPalette.surfaceSoft.withValues(alpha: 0.60),
         LiquidPalette.surface.withValues(alpha: 0.92),
       ],
       withShadow: false,
@@ -725,11 +725,11 @@ class _BottomNavigationItem extends StatelessWidget {
       borderRadius: BorderRadius.circular(22),
       tintColors: selected
           ? [
-              LiquidPalette.deepCyan.withValues(alpha: 0.96),
-              LiquidPalette.aqua.withValues(alpha: 0.22),
+              LiquidPalette.deepCyan.withValues(alpha: 0.84),
+              LiquidPalette.aqua.withValues(alpha: 0.14),
             ]
           : [
-              LiquidPalette.surfaceSoft.withValues(alpha: 0.76),
+              LiquidPalette.surfaceSoft.withValues(alpha: 0.60),
               LiquidPalette.surface.withValues(alpha: 0.92),
             ],
       withShadow: false,

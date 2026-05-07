@@ -25,36 +25,40 @@ class LibraryScreen extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Your Library',
-                          style: Theme.of(context).textTheme.displaySmall,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Manage saved folders, liked tracks, and the full collection built from your local file imports.',
-                          style: Theme.of(context).textTheme.bodyLarge
-                              ?.copyWith(
-                                color: Colors.white.withValues(alpha: 0.70),
-                              ),
-                        ),
-                      ],
+              GlassPanel(
+                padding: const EdgeInsets.all(22),
+                borderRadius: BorderRadius.circular(32),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Your Library',
+                            style: Theme.of(context).textTheme.displaySmall,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Manage saved folders, liked tracks, and the full collection built from your local file imports.',
+                            style: Theme.of(context).textTheme.bodyLarge
+                                ?.copyWith(
+                                  color: Colors.white.withValues(alpha: 0.68),
+                                ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 16),
-                  GlassIconButton(
-                    icon: Icons.tune_rounded,
-                    onTap: () => AppDetailsSheet.show(context),
-                    size: 48,
-                    iconSize: 20,
-                  ),
-                ],
+                    const SizedBox(width: 16),
+                    GlassIconButton(
+                      icon: Icons.tune_rounded,
+                      onTap: () => AppDetailsSheet.show(context),
+                      size: 48,
+                      iconSize: 20,
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: 20),
               if (wide)
@@ -68,7 +72,13 @@ class LibraryScreen extends StatelessWidget {
                     const SizedBox(width: 18),
                     Expanded(
                       flex: 2,
-                      child: _LikedSongsCard(controller: controller),
+                      child: Column(
+                        children: [
+                          _LikedSongsCard(controller: controller),
+                          const SizedBox(height: 18),
+                          _ImportedAudioCard(controller: controller),
+                        ],
+                      ),
                     ),
                   ],
                 )
@@ -76,6 +86,8 @@ class LibraryScreen extends StatelessWidget {
                 _LibrarySummary(controller: controller),
                 const SizedBox(height: 18),
                 _LikedSongsCard(controller: controller),
+                const SizedBox(height: 18),
+                _ImportedAudioCard(controller: controller),
               ],
               const SizedBox(height: 18),
               if (controller.statusMessage != null) ...[
@@ -94,122 +106,123 @@ class LibraryScreen extends StatelessWidget {
                 )
               else ...[
                 const SizedBox(height: 12),
-                const SectionHeader(
+                SectionCard(
                   title: 'Filters',
                   subtitle:
                       'Shape the library view around the content you want to manage right now',
-                ),
-                const SizedBox(height: 16),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [
-                    for (final filter in LibraryFilter.values)
-                      GlassPill(
-                        label: filter.label,
-                        selected: controller.libraryFilter == filter,
-                        onTap: () => controller.setLibraryFilter(filter),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: [
+                          for (final filter in LibraryFilter.values)
+                            GlassPill(
+                              label: filter.label,
+                              selected: controller.libraryFilter == filter,
+                              onTap: () => controller.setLibraryFilter(filter),
+                            ),
+                        ],
                       ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [
-                    for (final sort in LibrarySort.values)
-                      GlassPill(
-                        label: 'Sort ${sort.label}',
-                        selected: controller.librarySort == sort,
-                        onTap: () => controller.setLibrarySort(sort),
+                      const SizedBox(height: 14),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: [
+                          for (final sort in LibrarySort.values)
+                            GlassPill(
+                              label: 'Sort ${sort.label}',
+                              selected: controller.librarySort == sort,
+                              onTap: () => controller.setLibrarySort(sort),
+                            ),
+                        ],
                       ),
-                  ],
+                    ],
+                  ),
                 ),
                 if (controller.pinnedCollections.isNotEmpty) ...[
                   const SizedBox(height: 30),
-                  const SectionHeader(
+                  SectionCard(
                     title: 'Pinned Collections',
                     subtitle:
                         'Saved folders and strong recent mixes that deserve one-tap access',
-                  ),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    height: 286,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: controller.pinnedCollections.length,
-                      separatorBuilder: (context, index) =>
-                          const SizedBox(width: 14),
-                      itemBuilder: (context, index) => _PinnedCollectionCard(
-                        collection: controller.pinnedCollections[index],
+                    child: SizedBox(
+                      height: 286,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: controller.pinnedCollections.length,
+                        separatorBuilder: (context, index) =>
+                            const SizedBox(width: 14),
+                        itemBuilder: (context, index) => _PinnedCollectionCard(
+                          collection: controller.pinnedCollections[index],
+                        ),
                       ),
                     ),
                   ),
                 ],
                 if (controller.filteredLibraryCollections.isNotEmpty) ...[
                   const SizedBox(height: 30),
-                  SectionHeader(
+                  SectionCard(
                     title: controller.libraryFilter == LibraryFilter.favorites
                         ? 'Saved Collections'
                         : 'Collections',
                     subtitle:
                         'Open, save, and play folder-based queues from your imported library',
-                  ),
-                  const SizedBox(height: 16),
-                  Column(
-                    children: [
-                      for (
-                        var index = 0;
-                        index < controller.filteredLibraryCollections.length;
-                        index++
-                      ) ...[
-                        _LibraryCollectionRow(
-                          collection:
-                              controller.filteredLibraryCollections[index],
-                        ),
-                        if (index !=
-                            controller.filteredLibraryCollections.length - 1)
-                          const SizedBox(height: 12),
+                    child: Column(
+                      children: [
+                        for (
+                          var index = 0;
+                          index < controller.filteredLibraryCollections.length;
+                          index++
+                        ) ...[
+                          _LibraryCollectionRow(
+                            collection:
+                                controller.filteredLibraryCollections[index],
+                          ),
+                          if (index !=
+                              controller.filteredLibraryCollections.length - 1)
+                            const SizedBox(height: 12),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
                 ],
                 if (controller.filteredLibraryTracks.isNotEmpty) ...[
                   const SizedBox(height: 30),
-                  SectionHeader(
+                  SectionCard(
                     title: controller.libraryFilter == LibraryFilter.favorites
                         ? 'Liked Tracks'
                         : 'Tracks',
                     subtitle:
                         'Play, like, and revisit the files that define your current local catalog',
-                  ),
-                  const SizedBox(height: 16),
-                  Column(
-                    children: [
-                      for (
-                        var index = 0;
-                        index < controller.filteredLibraryTracks.length;
-                        index++
-                      ) ...[
-                        TrackRow(
-                          track: controller.filteredLibraryTracks[index],
-                          onTap: () {
-                            controller.playTrack(
-                              controller.filteredLibraryTracks[index],
-                              collection: controller.collectionForTrack(
-                                controller.filteredLibraryTracks[index],
-                              ),
-                            );
-                          },
-                          trailing: _LibraryTrackActions(
+                    child: Column(
+                      children: [
+                        for (
+                          var index = 0;
+                          index < controller.filteredLibraryTracks.length;
+                          index++
+                        ) ...[
+                          TrackRow(
                             track: controller.filteredLibraryTracks[index],
+                            onTap: () {
+                              controller.playTrack(
+                                controller.filteredLibraryTracks[index],
+                                collection: controller.collectionForTrack(
+                                  controller.filteredLibraryTracks[index],
+                                ),
+                              );
+                            },
+                            trailing: _LibraryTrackActions(
+                              track: controller.filteredLibraryTracks[index],
+                            ),
                           ),
-                        ),
-                        if (index !=
-                            controller.filteredLibraryTracks.length - 1)
-                          const SizedBox(height: 12),
+                          if (index !=
+                              controller.filteredLibraryTracks.length - 1)
+                            const SizedBox(height: 12),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
                 ],
                 if (controller.filteredLibraryCollections.isEmpty &&
@@ -252,7 +265,8 @@ class _LibrarySummary extends StatelessWidget {
             children: [
               GlassPill(label: '${controller.importedTrackCount} tracks'),
               GlassPill(label: '${controller.collectionCount} folders'),
-              GlassPill(label: '${controller.pinnedCollections.length} pinned'),
+              GlassPill(label: '${controller.artistCount} artists'),
+              GlassPill(label: '${controller.savedCollectionCount} saved'),
             ],
           ),
           const SizedBox(height: 16),
@@ -275,6 +289,52 @@ class _LibrarySummary extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 18),
+          Row(
+            children: [
+              Expanded(
+                child: GlassPanel(
+                  onTap: () {
+                    controller.playImportedTracks();
+                  },
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 15,
+                  ),
+                  borderRadius: BorderRadius.circular(24),
+                  tintColors: [
+                    LiquidPalette.aqua.withValues(alpha: 0.95),
+                    LiquidPalette.mint.withValues(alpha: 0.72),
+                  ],
+                  borderColor: LiquidPalette.mint.withValues(alpha: 0.24),
+                  withShadow: false,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(
+                        Icons.play_arrow_rounded,
+                        color: LiquidPalette.ink,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Play Imported',
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(color: LiquidPalette.ink),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              GlassIconButton(
+                icon: Icons.favorite_rounded,
+                onTap: () =>
+                    controller.openLibraryFilter(LibraryFilter.favorites),
+                size: 52,
+                iconSize: 22,
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
           ImportMusicActions(controller: controller),
         ],
       ),
@@ -293,10 +353,10 @@ class _LikedSongsCard extends StatelessWidget {
       padding: const EdgeInsets.all(24),
       borderRadius: BorderRadius.circular(34),
       tintColors: [
-        const Color(0xFF3B1E3A).withValues(alpha: 0.96),
-        const Color(0xFF8B5CF6).withValues(alpha: 0.42),
+        const Color(0xFF3B1E3A).withValues(alpha: 0.78),
+        const Color(0xFF8B5CF6).withValues(alpha: 0.18),
       ],
-      borderColor: const Color(0xFF8B5CF6).withValues(alpha: 0.22),
+      borderColor: const Color(0xFF8B5CF6).withValues(alpha: 0.10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -364,6 +424,96 @@ class _LikedSongsCard extends StatelessWidget {
                 icon: Icons.arrow_forward_rounded,
                 onTap: () =>
                     controller.openLibraryFilter(LibraryFilter.favorites),
+                size: 52,
+                iconSize: 20,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ImportedAudioCard extends StatelessWidget {
+  const _ImportedAudioCard({required this.controller});
+
+  final MusicAppController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassPanel(
+      padding: const EdgeInsets.all(24),
+      borderRadius: BorderRadius.circular(34),
+      tintColors: [
+        const Color(0xFF10233E).withValues(alpha: 0.76),
+        const Color(0xFF4B7BFF).withValues(alpha: 0.16),
+      ],
+      borderColor: const Color(0xFF4B7BFF).withValues(alpha: 0.10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 54,
+            height: 54,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: const Icon(Icons.audio_file_rounded),
+          ),
+          const SizedBox(height: 18),
+          Text(
+            'Imported Audio',
+            style: Theme.of(context).textTheme.headlineMedium,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '${controller.importedTrackCount} tracks across ${controller.albumCount} albums are ready for queue playback.',
+            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+              color: Colors.white.withValues(alpha: 0.74),
+            ),
+          ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Expanded(
+                child: GlassPanel(
+                  onTap: () {
+                    controller.playImportedTracks();
+                  },
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 15,
+                  ),
+                  borderRadius: BorderRadius.circular(24),
+                  tintColors: [
+                    LiquidPalette.aqua.withValues(alpha: 0.95),
+                    LiquidPalette.mint.withValues(alpha: 0.72),
+                  ],
+                  borderColor: LiquidPalette.mint.withValues(alpha: 0.24),
+                  withShadow: false,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(
+                        Icons.play_arrow_rounded,
+                        color: LiquidPalette.ink,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Play All',
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(color: LiquidPalette.ink),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              GlassIconButton(
+                icon: Icons.library_music_rounded,
+                onTap: () => controller.openLibraryFilter(LibraryFilter.tracks),
                 size: 52,
                 iconSize: 20,
               ),

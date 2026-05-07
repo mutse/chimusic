@@ -1,3 +1,4 @@
+import 'package:chimusic/data/music_session_store.dart';
 import 'package:chimusic/models/music_models.dart';
 import 'package:chimusic/state/chimusic_controller.dart';
 import 'package:flutter/material.dart';
@@ -152,6 +153,200 @@ void main() {
     });
 
     test(
+      'playImportedTracks opens an all-tracks queue from the library',
+      () async {
+        final secondTrack = _track(
+          folderPath: '/music/late',
+          title: 'Signals',
+          artist: 'North Coast',
+          album: 'Late Set',
+          duration: const Duration(minutes: 3, seconds: 12),
+          importedAt: DateTime(2026, 5, 6, 11),
+        );
+        final firstTrack = _track(
+          folderPath: '/music/late',
+          title: 'All We Have',
+          artist: 'North Coast',
+          album: 'Late Set',
+          duration: const Duration(minutes: 4, seconds: 4),
+          importedAt: DateTime(2026, 5, 6, 10),
+        );
+        final controller = MusicAppController(
+          enableAudio: false,
+          initialTracks: [secondTrack, firstTrack],
+        );
+        addTearDown(controller.dispose);
+
+        await controller.playImportedTracks();
+
+        expect(controller.currentCollection?.id, 'all_tracks');
+        expect(controller.currentTrack?.id, firstTrack.id);
+        expect(controller.queue.map((track) => track.id).toList(), [
+          firstTrack.id,
+          secondTrack.id,
+        ]);
+        expect(controller.isPlaying, isTrue);
+      },
+    );
+
+    test(
+      'restoreSession rehydrates imported tracks, favorites, and view state',
+      () async {
+        final track = _track(
+          folderPath: '/music/archive',
+          title: 'Voyager',
+          artist: 'Daft Punk',
+          album: 'Archive',
+          duration: const Duration(minutes: 3, seconds: 44),
+          importedAt: DateTime(2026, 5, 5, 9),
+        );
+        final store = _FakeSessionStore(
+          snapshot: MusicSessionSnapshot(
+            tracks: [track],
+            likedTrackIds: {track.id},
+            savedCollectionIds: {track.folderPath},
+            recentTrackIds: [track.id],
+            recentSearches: const ['Archive'],
+            selectedTab: MusicTab.library,
+            libraryFilter: LibraryFilter.favorites,
+            librarySort: LibrarySort.length,
+            searchQuery: 'Archive',
+          ),
+        );
+        final controller = MusicAppController(
+          enableAudio: false,
+          sessionStore: store,
+        );
+        addTearDown(controller.dispose);
+
+        await controller.restoreSession();
+
+        expect(controller.importedTrackCount, 1);
+        expect(controller.likedTracksCount, 1);
+        expect(controller.savedCollectionCount, 1);
+        expect(controller.selectedTab, MusicTab.library);
+        expect(controller.libraryFilter, LibraryFilter.favorites);
+        expect(controller.librarySort, LibrarySort.length);
+        expect(controller.searchQuery, 'Archive');
+        expect(controller.recentSearches, ['Archive']);
+      },
+    );
+
+    test(
+      'restoreSession rehydrates the playback queue and saved progress',
+      () async {
+        final firstTrack = _track(
+          folderPath: '/music/archive',
+          title: 'Voyager',
+          artist: 'Daft Punk',
+          album: 'Archive',
+          duration: const Duration(minutes: 3, seconds: 44),
+          importedAt: DateTime(2026, 5, 5, 9),
+        );
+        final secondTrack = _track(
+          folderPath: '/music/archive',
+          title: 'Digital Love',
+          artist: 'Daft Punk',
+          album: 'Archive',
+          duration: const Duration(minutes: 4, seconds: 58),
+          importedAt: DateTime(2026, 5, 5, 10),
+        );
+        final store = _FakeSessionStore(
+          snapshot: MusicSessionSnapshot(
+            tracks: [firstTrack, secondTrack],
+            queueTrackIds: [firstTrack.id, secondTrack.id],
+            currentTrackId: secondTrack.id,
+            currentCollectionId: firstTrack.folderPath,
+            positionMs: 91000,
+          ),
+        );
+        final controller = MusicAppController(
+          enableAudio: false,
+          sessionStore: store,
+        );
+        addTearDown(controller.dispose);
+
+        await controller.restoreSession();
+
+        expect(controller.queue.map((track) => track.id).toList(), [
+          firstTrack.id,
+          secondTrack.id,
+        ]);
+        expect(controller.currentTrack?.id, secondTrack.id);
+        expect(controller.currentCollection?.id, firstTrack.folderPath);
+        expect(controller.position, const Duration(seconds: 91));
+        expect(controller.isPlaying, isFalse);
+      },
+    );
+
+    test(
+      'state changes persist through the configured session store',
+      () async {
+        final track = _track(
+          folderPath: '/music/ocean',
+          title: 'Blue Horizon',
+          artist: 'North Coast',
+          album: 'Sea Glass',
+          duration: const Duration(minutes: 4, seconds: 8),
+          importedAt: DateTime(2026, 5, 6, 15),
+        );
+        final store = _FakeSessionStore();
+        final controller = MusicAppController(
+          enableAudio: false,
+          sessionStore: store,
+          initialTracks: [track],
+        );
+        addTearDown(controller.dispose);
+
+        controller.toggleLikedTrack(track.id);
+        controller.toggleSavedCollection(track.folderPath);
+        controller.openSearch('Sea Glass');
+
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+
+        final snapshot = store.lastSaved;
+        expect(snapshot, isNotNull);
+        expect(snapshot!.tracks.single.id, track.id);
+        expect(snapshot.likedTrackIds, {track.id});
+        expect(snapshot.savedCollectionIds, {track.folderPath});
+        expect(snapshot.selectedTab, MusicTab.search);
+        expect(snapshot.searchQuery, 'Sea Glass');
+      },
+    );
+
+    test(
+      'playback queue and progress persist through the configured session store',
+      () async {
+        final track = _track(
+          folderPath: '/music/ocean',
+          title: 'Blue Horizon',
+          artist: 'North Coast',
+          album: 'Sea Glass',
+          duration: const Duration(minutes: 4),
+          importedAt: DateTime(2026, 5, 6, 15),
+        );
+        final store = _FakeSessionStore();
+        final controller = MusicAppController(
+          enableAudio: false,
+          sessionStore: store,
+          initialTracks: [track],
+        );
+        addTearDown(controller.dispose);
+
+        await controller.playImportedTracks();
+        await controller.seekToFraction(0.5);
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+
+        final snapshot = store.lastSaved;
+        expect(snapshot, isNotNull);
+        expect(snapshot!.queueTrackIds, [track.id]);
+        expect(snapshot.currentTrackId, track.id);
+        expect(snapshot.currentCollectionId, 'all_tracks');
+        expect(snapshot.positionMs, 120000);
+      },
+    );
+
+    test(
       'removeCollectionFromLibrary removes only that collection from the session',
       () async {
         final firstTrack = _track(
@@ -256,4 +451,19 @@ Track _track({
     duration: duration,
     fileExtension: 'mp3',
   );
+}
+
+class _FakeSessionStore implements MusicSessionStore {
+  _FakeSessionStore({this.snapshot = const MusicSessionSnapshot()});
+
+  final MusicSessionSnapshot snapshot;
+  MusicSessionSnapshot? lastSaved;
+
+  @override
+  Future<MusicSessionSnapshot> load() async => snapshot;
+
+  @override
+  Future<void> save(MusicSessionSnapshot snapshot) async {
+    lastSaved = snapshot;
+  }
 }

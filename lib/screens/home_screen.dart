@@ -53,27 +53,56 @@ class _HomeHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final greeting = _buildGreeting();
 
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: Column(
+    return GlassPanel(
+      padding: const EdgeInsets.all(22),
+      borderRadius: BorderRadius.circular(32),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(greeting, style: Theme.of(context).textTheme.displaySmall),
-              const SizedBox(height: 8),
-              Text(
-                controller.hasMusic
-                    ? 'Resume your queue, jump into saved folders, and keep your local music moving.'
-                    : 'Build your own streaming-style home feed from local audio files.',
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  color: Colors.white.withValues(alpha: 0.70),
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    colors: [
+                      LiquidPalette.aqua.withValues(alpha: 0.90),
+                      LiquidPalette.mint.withValues(alpha: 0.68),
+                    ],
+                  ),
+                ),
+                child: const Icon(
+                  Icons.library_music_rounded,
+                  color: LiquidPalette.ink,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '$greeting, welcome back',
+                      style: Theme.of(context).textTheme.displaySmall,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      controller.hasMusic
+                          ? 'Your imported files now power Home, Search, Library, and a ready-to-resume playback queue.'
+                          : 'Import local music once and ChiMusic will turn it into a richer streaming-style experience.',
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.68),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
-        ),
-        if (isWideWidth(context))
+          const SizedBox(height: 16),
           Wrap(
             spacing: 10,
             runSpacing: 10,
@@ -86,9 +115,14 @@ class _HomeHeader extends StatelessWidget {
                 label: '${controller.collectionCount} folders',
                 leading: const Icon(Icons.folder_rounded, size: 16),
               ),
+              GlassPill(
+                label: '${controller.likedTracksCount} liked',
+                leading: const Icon(Icons.favorite_rounded, size: 16),
+              ),
             ],
           ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -146,7 +180,7 @@ class _OnboardingHero extends StatelessWidget {
       padding: const EdgeInsets.all(26),
       borderRadius: BorderRadius.circular(36),
       tintColors: [
-        LiquidPalette.deepCyan.withValues(alpha: 0.98),
+        LiquidPalette.deepCyan.withValues(alpha: 0.86),
         LiquidPalette.surfaceRaised.withValues(alpha: 0.96),
       ],
       child: Column(
@@ -283,6 +317,13 @@ class _HomeContent extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (featured != null)
+          const SectionHeader(
+            title: 'Featured Collection',
+            subtitle:
+                'A live hero generated from your saved folders, recent plays, and imported music',
+          ),
+        if (featured != null) const SizedBox(height: 16),
+        if (featured != null)
           if (wide)
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -304,26 +345,18 @@ class _HomeContent extends StatelessWidget {
             _SessionSnapshot(controller: controller),
           ],
         const SizedBox(height: 30),
-        const SectionHeader(
-          title: 'Quick Access',
-          subtitle: 'Jump into the areas you are most likely to use next',
-        ),
-        const SizedBox(height: 16),
-        _QuickAccessGrid(controller: controller),
-        const SizedBox(height: 30),
-        SectionHeader(
-          title: 'Continue Listening',
+        SectionCard(
+          title: 'Recently Played',
           subtitle: controller.recentPlayedTracks.isEmpty
               ? 'Fresh imports ready for their first play'
-              : 'Pick up where you left off across your local queue',
+              : 'Jump back into the tracks and folders that were active most recently',
+          child: _ListeningGrid(controller: controller),
         ),
-        const SizedBox(height: 16),
-        _ListeningGrid(controller: controller),
         const SizedBox(height: 30),
         const SectionHeader(
-          title: 'Made For This Library',
+          title: 'Featured Collections',
           subtitle:
-              'Pinned folders, recent mixes, and collections worth keeping close',
+              'Saved folders, live queues, and imported mixes styled like an editorial shelf',
         ),
         const SizedBox(height: 16),
         SizedBox(
@@ -338,37 +371,43 @@ class _HomeContent extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 30),
-        const SectionHeader(
+        SectionCard(
+          title: 'Quick Picks',
+          subtitle:
+              'Jump straight into import, search, favorites, and play-all actions from Home',
+          child: _QuickAccessGrid(controller: controller),
+        ),
+        const SizedBox(height: 30),
+        SectionCard(
           title: 'Fresh Finds',
           subtitle:
               'Your strongest signals right now: liked songs, recents, and newly imported tracks',
-        ),
-        const SizedBox(height: 16),
-        Column(
-          children: [
-            for (
-              var index = 0;
-              index < controller.spotlightTracks.length;
-              index++
-            ) ...[
-              TrackRow(
-                track: controller.spotlightTracks[index],
-                onTap: () {
-                  controller.playTrack(
-                    controller.spotlightTracks[index],
-                    collection: controller.collectionForTrack(
-                      controller.spotlightTracks[index],
-                    ),
-                  );
-                },
-                trailing: _TrackActions(
+          child: Column(
+            children: [
+              for (
+                var index = 0;
+                index < controller.spotlightTracks.length;
+                index++
+              ) ...[
+                TrackRow(
                   track: controller.spotlightTracks[index],
+                  onTap: () {
+                    controller.playTrack(
+                      controller.spotlightTracks[index],
+                      collection: controller.collectionForTrack(
+                        controller.spotlightTracks[index],
+                      ),
+                    );
+                  },
+                  trailing: _TrackActions(
+                    track: controller.spotlightTracks[index],
+                  ),
                 ),
-              ),
-              if (index != controller.spotlightTracks.length - 1)
-                const SizedBox(height: 12),
+                if (index != controller.spotlightTracks.length - 1)
+                  const SizedBox(height: 12),
+              ],
             ],
-          ],
+          ),
         ),
       ],
     );
@@ -388,7 +427,7 @@ class _FeaturedCollectionHero extends StatelessWidget {
       padding: const EdgeInsets.all(26),
       borderRadius: BorderRadius.circular(36),
       tintColors: [
-        collection.palette.first.withValues(alpha: 0.38),
+        collection.palette.first.withValues(alpha: 0.22),
         LiquidPalette.surfaceRaised.withValues(alpha: 0.95),
       ],
       child: Column(
@@ -518,7 +557,7 @@ class _SessionSnapshot extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           Text(
-            'Keep building this local catalog. New imports immediately feed Home, Search, and Library.',
+            'Keep building this local catalog. New imports immediately feed Home, Search, Library, and the current playback surface.',
             style: Theme.of(context).textTheme.bodyLarge?.copyWith(
               color: Colors.white.withValues(alpha: 0.68),
             ),
@@ -534,6 +573,13 @@ class _SessionSnapshot extends StatelessWidget {
             style: Theme.of(context).textTheme.headlineLarge,
           ),
           const SizedBox(height: 14),
+          const _SnapshotStatRow(icon: Icons.person_rounded, title: 'Artists'),
+          const SizedBox(height: 8),
+          Text(
+            '${controller.artistCount}',
+            style: Theme.of(context).textTheme.headlineMedium,
+          ),
+          const SizedBox(height: 14),
           const _SnapshotStatRow(
             icon: Icons.favorite_rounded,
             title: 'Liked Songs',
@@ -542,6 +588,62 @@ class _SessionSnapshot extends StatelessWidget {
           Text(
             '${controller.likedTracksCount}',
             style: Theme.of(context).textTheme.headlineMedium,
+          ),
+          const SizedBox(height: 14),
+          const _SnapshotStatRow(
+            icon: Icons.bookmark_rounded,
+            title: 'Saved Collections',
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '${controller.savedCollectionCount}',
+            style: Theme.of(context).textTheme.headlineMedium,
+          ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Expanded(
+                child: GlassPanel(
+                  onTap: () {
+                    controller.playImportedTracks();
+                  },
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 15,
+                  ),
+                  borderRadius: BorderRadius.circular(24),
+                  tintColors: [
+                    LiquidPalette.aqua.withValues(alpha: 0.95),
+                    LiquidPalette.mint.withValues(alpha: 0.72),
+                  ],
+                  borderColor: LiquidPalette.mint.withValues(alpha: 0.24),
+                  withShadow: false,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(
+                        Icons.play_arrow_rounded,
+                        color: LiquidPalette.ink,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Play All',
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(color: LiquidPalette.ink),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              GlassIconButton(
+                icon: Icons.favorite_rounded,
+                onTap: () =>
+                    controller.openLibraryFilter(LibraryFilter.favorites),
+                size: 52,
+                iconSize: 22,
+              ),
+            ],
           ),
           const SizedBox(height: 18),
           ImportMusicActions(controller: controller),
@@ -583,34 +685,36 @@ class _QuickAccessGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     final items = <_QuickAccessItem>[
       _QuickAccessItem(
+        title: 'Imported Audio',
+        subtitle:
+            '${controller.importedTrackCount} tracks • ${controller.albumCount} albums',
+        icon: Icons.audio_file_rounded,
+        accent: const [Color(0xFF153C2A), Color(0xFF1ED760)],
+        onTap: () {
+          controller.playImportedTracks();
+        },
+      ),
+      _QuickAccessItem(
         title: 'Liked Songs',
-        subtitle: '${controller.likedTracksCount} saved favorites',
+        subtitle: '${controller.likedTracksCount} favorites ready to replay',
         icon: Icons.favorite_rounded,
         accent: const [Color(0xFF3B1E3A), Color(0xFF8B5CF6)],
         onTap: () => controller.openLibraryFilter(LibraryFilter.favorites),
       ),
       _QuickAccessItem(
-        title: 'Folders',
-        subtitle: '${controller.collectionCount} collection views',
-        icon: Icons.folder_copy_rounded,
-        accent: const [Color(0xFF153C2A), Color(0xFF1ED760)],
-        onTap: () => controller.openLibraryFilter(LibraryFilter.folders),
-      ),
-      _QuickAccessItem(
-        title: 'Search',
-        subtitle: 'Find artists, albums, or file types',
+        title: 'Search Library',
+        subtitle: 'Find artists, folders, albums, or file types fast',
         icon: Icons.search_rounded,
         accent: const [Color(0xFF10233E), Color(0xFF4B7BFF)],
         onTap: controller.openSearch,
       ),
       _QuickAccessItem(
-        title: 'Play All',
-        subtitle: '${controller.importedTrackCount} tracks in one queue',
-        icon: Icons.play_circle_fill_rounded,
+        title: 'Saved Collections',
+        subtitle:
+            '${controller.savedCollectionCount} saved • ${controller.collectionCount} total folders',
+        icon: Icons.folder_special_rounded,
         accent: const [Color(0xFF3A280F), Color(0xFFF4A259)],
-        onTap: () {
-          controller.togglePlayPause();
-        },
+        onTap: () => controller.openLibraryFilter(LibraryFilter.folders),
       ),
     ];
 
@@ -656,10 +760,10 @@ class _QuickAccessCard extends StatelessWidget {
       padding: const EdgeInsets.all(18),
       borderRadius: BorderRadius.circular(28),
       tintColors: [
-        item.accent.first.withValues(alpha: 0.92),
-        item.accent.last.withValues(alpha: 0.36),
+        item.accent.first.withValues(alpha: 0.54),
+        item.accent.last.withValues(alpha: 0.14),
       ],
-      borderColor: item.accent.last.withValues(alpha: 0.24),
+      borderColor: item.accent.last.withValues(alpha: 0.10),
       withShadow: false,
       child: Row(
         children: [

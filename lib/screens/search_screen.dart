@@ -58,12 +58,24 @@ class _SearchScreenState extends State<SearchScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Search', style: Theme.of(context).textTheme.displaySmall),
-              const SizedBox(height: 8),
-              Text(
-                'Explore your imported artists, folders, albums, and audio formats from one fast search surface.',
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  color: Colors.white.withValues(alpha: 0.70),
+              GlassPanel(
+                padding: const EdgeInsets.all(22),
+                borderRadius: BorderRadius.circular(32),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Search',
+                      style: Theme.of(context).textTheme.displaySmall,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Explore your imported artists, folders, albums, and audio formats from one fast search surface.',
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.68),
+                      ),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(height: 20),
@@ -89,7 +101,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 )
               else ...[
                 if (controller.recentSearches.isNotEmpty) ...[
-                  SectionHeader(
+                  SectionCard(
                     title: 'Recent Searches',
                     subtitle:
                         'Reusable jumps back into the terms you searched most recently',
@@ -101,125 +113,121 @@ class _SearchScreenState extends State<SearchScreen> {
                       ),
                       onTap: controller.clearRecentSearches,
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    children: [
-                      for (final term in controller.recentSearches)
-                        GlassPill(
-                          label: term,
-                          leading: const Icon(Icons.history_rounded, size: 16),
-                          onTap: () => controller.applySearchSuggestion(term),
-                        ),
-                    ],
+                    child: Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        for (final term in controller.recentSearches)
+                          GlassPill(
+                            label: term,
+                            leading: const Icon(
+                              Icons.history_rounded,
+                              size: 16,
+                            ),
+                            onTap: () => controller.applySearchSuggestion(term),
+                          ),
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 30),
                 ],
-                SectionHeader(
+                SectionCard(
                   title: hasQuery
                       ? 'Matching Suggestions'
                       : 'Trending in Your Library',
                   subtitle: hasQuery
                       ? 'Tap a term to refine the current search direction'
                       : 'Artists, titles, and folders that are showing up most often',
-                ),
-                const SizedBox(height: 16),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [
-                    for (final term in controller.trendingSearches)
-                      GlassPill(
-                        label: term,
-                        leading: const Icon(
-                          Icons.trending_up_rounded,
-                          size: 16,
+                  child: Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      for (final term in controller.trendingSearches)
+                        GlassPill(
+                          label: term,
+                          leading: const Icon(
+                            Icons.trending_up_rounded,
+                            size: 16,
+                          ),
+                          onTap: () => controller.applySearchSuggestion(term),
                         ),
-                        onTap: () => controller.applySearchSuggestion(term),
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 30),
-                const SectionHeader(
+                SectionCard(
                   title: 'Browse All',
                   subtitle:
                       'Discovery cards generated from the strongest metadata inside your local collection',
+                  child: _BrowseGrid(terms: controller.browseSuggestions),
                 ),
-                const SizedBox(height: 16),
-                _BrowseGrid(terms: controller.browseSuggestions),
                 if (hasQuery && topTrack != null) ...[
                   const SizedBox(height: 30),
-                  const SectionHeader(
+                  SectionCard(
                     title: 'Top Result',
                     subtitle:
                         'Best ranked match across your current local music library',
+                    child: _TopResultCard(track: topTrack),
                   ),
-                  const SizedBox(height: 16),
-                  _TopResultCard(track: topTrack),
                 ],
                 const SizedBox(height: 30),
-                SectionHeader(
+                SectionCard(
                   title: hasQuery ? 'Tracks' : 'Recent Tracks',
                   subtitle: hasQuery
                       ? 'Search results update while you type'
                       : 'Fresh imports and continue-listening tracks ready to play',
-                ),
-                const SizedBox(height: 16),
-                if (controller.searchTrackResults.isEmpty)
-                  const _SearchPlaceholder(
-                    message: 'No matching tracks were found.',
-                  )
-                else
-                  Column(
-                    children: [
-                      for (
-                        var index = 0;
-                        index < controller.searchTrackResults.length;
-                        index++
-                      ) ...[
-                        TrackRow(
-                          track: controller.searchTrackResults[index],
-                          onTap: () {
-                            controller.playTrack(
-                              controller.searchTrackResults[index],
-                              collection: controller.collectionForTrack(
-                                controller.searchTrackResults[index],
+                  child: controller.searchTrackResults.isEmpty
+                      ? const _SearchPlaceholder(
+                          message: 'No matching tracks were found.',
+                        )
+                      : Column(
+                          children: [
+                            for (
+                              var index = 0;
+                              index < controller.searchTrackResults.length;
+                              index++
+                            ) ...[
+                              TrackRow(
+                                track: controller.searchTrackResults[index],
+                                onTap: () {
+                                  controller.playTrack(
+                                    controller.searchTrackResults[index],
+                                    collection: controller.collectionForTrack(
+                                      controller.searchTrackResults[index],
+                                    ),
+                                  );
+                                },
+                                trailing: _SearchTrackActions(
+                                  track: controller.searchTrackResults[index],
+                                ),
                               ),
-                            );
-                          },
-                          trailing: _SearchTrackActions(
-                            track: controller.searchTrackResults[index],
-                          ),
+                              if (index !=
+                                  controller.searchTrackResults.length - 1)
+                                const SizedBox(height: 12),
+                            ],
+                          ],
                         ),
-                        if (index != controller.searchTrackResults.length - 1)
-                          const SizedBox(height: 12),
-                      ],
-                    ],
-                  ),
+                ),
                 const SizedBox(height: 30),
-                SectionHeader(
+                SectionCard(
                   title: hasQuery ? 'Collections' : 'Browse Collections',
                   subtitle: hasQuery
                       ? 'Open a folder or saved mix directly from results'
                       : 'Collections created from your folder structure and saved picks',
+                  child: controller.searchCollectionResults.isEmpty
+                      ? const _SearchPlaceholder(
+                          message: 'No matching collections were found.',
+                        )
+                      : Wrap(
+                          spacing: 14,
+                          runSpacing: 14,
+                          children: [
+                            for (final collection
+                                in controller.searchCollectionResults)
+                              _SearchCollectionCard(collection: collection),
+                          ],
+                        ),
                 ),
-                const SizedBox(height: 16),
-                if (controller.searchCollectionResults.isEmpty)
-                  const _SearchPlaceholder(
-                    message: 'No matching collections were found.',
-                  )
-                else
-                  Wrap(
-                    spacing: 14,
-                    runSpacing: 14,
-                    children: [
-                      for (final collection
-                          in controller.searchCollectionResults)
-                        _SearchCollectionCard(collection: collection),
-                    ],
-                  ),
               ],
             ],
           ),
@@ -243,8 +251,8 @@ class _SearchHero extends StatelessWidget {
       padding: const EdgeInsets.all(22),
       borderRadius: BorderRadius.circular(34),
       tintColors: [
-        LiquidPalette.surfaceRaised.withValues(alpha: 0.98),
-        LiquidPalette.surface.withValues(alpha: 0.95),
+        LiquidPalette.surfaceRaised.withValues(alpha: 0.96),
+        LiquidPalette.surface.withValues(alpha: 0.94),
       ],
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -345,11 +353,11 @@ class _BrowseGrid extends StatelessWidget {
               padding: const EdgeInsets.all(18),
               borderRadius: BorderRadius.circular(28),
               tintColors: [
-                palettes[index % palettes.length].first.withValues(alpha: 0.94),
-                palettes[index % palettes.length].last.withValues(alpha: 0.42),
+                palettes[index % palettes.length].first.withValues(alpha: 0.72),
+                palettes[index % palettes.length].last.withValues(alpha: 0.18),
               ],
               borderColor: palettes[index % palettes.length].last.withValues(
-                alpha: 0.22,
+                alpha: 0.12,
               ),
               withShadow: false,
               child: SizedBox(
@@ -400,7 +408,7 @@ class _TopResultCard extends StatelessWidget {
       padding: const EdgeInsets.all(22),
       borderRadius: BorderRadius.circular(34),
       tintColors: [
-        track.palette.first.withValues(alpha: 0.34),
+        track.palette.first.withValues(alpha: 0.20),
         LiquidPalette.surfaceRaised.withValues(alpha: 0.96),
       ],
       child: Row(

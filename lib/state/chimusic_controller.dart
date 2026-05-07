@@ -7,12 +7,14 @@ import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 
 import '../data/local_audio_importer.dart';
+import '../data/music_session_store.dart';
 import '../models/music_models.dart';
 
 class MusicAppController extends ChangeNotifier {
   MusicAppController({
     AudioPlayer? player,
     bool enableAudio = true,
+    MusicSessionStore? sessionStore,
     List<Track> initialTracks = const <Track>[],
     Set<String> initialLikedTrackIds = const <String>{},
     Set<String> initialSavedCollectionIds = const <String>{},
@@ -23,6 +25,7 @@ class MusicAppController extends ChangeNotifier {
     LibrarySort initialLibrarySort = LibrarySort.recent,
     String initialSearchQuery = '',
   }) : _audioEnabled = enableAudio,
+       _sessionStore = sessionStore,
        _player = enableAudio ? (player ?? AudioPlayer()) : null {
     _tracks = List<Track>.from(initialTracks);
     _likedTrackIds.addAll(initialLikedTrackIds);
@@ -37,6 +40,7 @@ class MusicAppController extends ChangeNotifier {
   }
 
   final bool _audioEnabled;
+  final MusicSessionStore? _sessionStore;
   final AudioPlayer? _player;
   final Set<String> _likedTrackIds = <String>{};
   final Set<String> _savedCollectionIds = <String>{};
@@ -44,6 +48,9 @@ class MusicAppController extends ChangeNotifier {
   final List<String> _recentSearches = <String>[];
   final List<StreamSubscription<dynamic>> _subscriptions =
       <StreamSubscription<dynamic>>[];
+  Future<void> _persistOperation = Future<void>.value();
+  bool _hasRestoredSession = false;
+  int? _lastPersistedPositionBucket;
 
   List<Track> _tracks = <Track>[];
   List<Track> _queue = <Track>[];
@@ -79,6 +86,11 @@ class MusicAppController extends ChangeNotifier {
   int get importedTrackCount => _tracks.length;
   int get collectionCount => importedCollections.length;
   int get likedTracksCount => _likedTrackIds.length;
+  int get savedCollectionCount => savedCollections.length;
+  int get artistCount =>
+      _tracks.map((track) => track.artist.toLowerCase()).toSet().length;
+  int get albumCount =>
+      _tracks.map((track) => track.album.toLowerCase()).toSet().length;
 
   double get playbackProgress {
     final duration = _currentTrack?.duration;
@@ -464,6 +476,52 @@ class MusicAppController extends ChangeNotifier {
 
   bool isTrackLiked(String trackId) => _likedTrackIds.contains(trackId);
 
+  Future<void> restoreSession() async {
+    final sessionStore = _sessionStore;
+    if (_hasRestoredSession || sessionStore == null) {
+      return;
+    }
+
+    _hasRestoredSession = true;
+
+    try {
+      final snapshot = await sessionStore.load();
+      final tracks = snapshot.tracks
+          .where((track) => track.filePath.isNotEmpty)
+          .toList(growable: false);
+      final trackIds = tracks.map((track) => track.id).toSet();
+
+      _tracks = tracks;
+      _likedTrackIds
+        ..clear()
+        ..addAll(snapshot.likedTrackIds.where(trackIds.contains));
+      _savedCollectionIds
+        ..clear()
+        ..addAll(snapshot.savedCollectionIds);
+      _recentTrackIds
+        ..clear()
+        ..addAll(snapshot.recentTrackIds.where(trackIds.contains));
+      _recentSearches
+        ..clear()
+        ..addAll(snapshot.recentSearches.take(8));
+      _selectedTab = snapshot.selectedTab;
+      _libraryFilter = snapshot.libraryFilter;
+      _librarySort = snapshot.librarySort;
+      _searchQuery = snapshot.searchQuery;
+      _savedCollectionIds.removeWhere(
+        (collectionId) => !importedCollections.any(
+          (collection) => collection.id == collectionId,
+        ),
+      );
+      await _restorePlaybackSnapshot(snapshot);
+      notifyListeners();
+    } catch (_) {
+      _statusMessage =
+          'Unable to restore your last ChiMusic session. You can import your music again.';
+      notifyListeners();
+    }
+  }
+
   void selectTab(MusicTab tab) {
     if (_selectedTab == tab) {
       return;
@@ -471,6 +529,7 @@ class MusicAppController extends ChangeNotifier {
 
     _selectedTab = tab;
     notifyListeners();
+    _persistSession();
   }
 
   void setLibraryFilter(LibraryFilter filter) {
@@ -480,6 +539,7 @@ class MusicAppController extends ChangeNotifier {
 
     _libraryFilter = filter;
     notifyListeners();
+    _persistSession();
   }
 
   void setLibrarySort(LibrarySort sort) {
@@ -489,6 +549,7 @@ class MusicAppController extends ChangeNotifier {
 
     _librarySort = sort;
     notifyListeners();
+    _persistSession();
   }
 
   void updateSearchQuery(String value) {
@@ -507,6 +568,7 @@ class MusicAppController extends ChangeNotifier {
 
     _searchQuery = '';
     notifyListeners();
+    _persistSession();
   }
 
   void clearRecentSearches() {
@@ -516,6 +578,7 @@ class MusicAppController extends ChangeNotifier {
 
     _recentSearches.clear();
     notifyListeners();
+    _persistSession();
   }
 
   void clearStatusMessage() {
@@ -535,6 +598,7 @@ class MusicAppController extends ChangeNotifier {
 
     _rememberSearch(candidate);
     notifyListeners();
+    _persistSession();
   }
 
   void applySearchSuggestion(String value) {
@@ -546,6 +610,7 @@ class MusicAppController extends ChangeNotifier {
     _searchQuery = normalized;
     _rememberSearch(normalized);
     notifyListeners();
+    _persistSession();
   }
 
   void openLibraryFilter(LibraryFilter filter) {
@@ -557,6 +622,7 @@ class MusicAppController extends ChangeNotifier {
 
     if (selectedChanged || filterChanged) {
       notifyListeners();
+      _persistSession();
     }
   }
 
@@ -569,6 +635,7 @@ class MusicAppController extends ChangeNotifier {
 
     if (selectedChanged || queryChanged) {
       notifyListeners();
+      _persistSession();
     }
   }
 
@@ -580,6 +647,7 @@ class MusicAppController extends ChangeNotifier {
     }
 
     notifyListeners();
+    _persistSession();
   }
 
   void toggleLikedTrack(String trackId) {
@@ -590,6 +658,7 @@ class MusicAppController extends ChangeNotifier {
     }
 
     notifyListeners();
+    _persistSession();
   }
 
   Future<void> importLocalFiles() async {
@@ -665,6 +734,7 @@ class MusicAppController extends ChangeNotifier {
     if (!_audioEnabled || _player == null) {
       _isPlaying = !_isPlaying;
       notifyListeners();
+      _persistSession();
       return;
     }
 
@@ -675,6 +745,21 @@ class MusicAppController extends ChangeNotifier {
     } else {
       await player.play();
     }
+
+    _persistSession();
+  }
+
+  Future<void> playImportedTracks() async {
+    if (!hasMusic) {
+      return;
+    }
+
+    await _loadQueue(
+      allTracksCollection.tracks,
+      initialIndex: 0,
+      collection: allTracksCollection,
+      autoplay: true,
+    );
   }
 
   Future<void> playCollection(
@@ -773,9 +858,11 @@ class MusicAppController extends ChangeNotifier {
     _recentSearches.clear();
     _isPlaying = false;
     _isPreparingPlayback = false;
+    _lastPersistedPositionBucket = null;
     _statusMessage =
         'Cleared imported items from ChiMusic. Original audio files were not deleted.';
     notifyListeners();
+    _persistSession();
   }
 
   Future<void> seekToFraction(double fraction) async {
@@ -792,12 +879,16 @@ class MusicAppController extends ChangeNotifier {
     if (!_audioEnabled || _player == null) {
       _position = nextPosition;
       notifyListeners();
+      _persistSession();
       return;
     }
 
     final player = _player;
 
+    _position = nextPosition;
+    notifyListeners();
     await player.seek(nextPosition);
+    _persistSession();
   }
 
   Future<void> skipNext() async {
@@ -816,6 +907,7 @@ class MusicAppController extends ChangeNotifier {
       _currentTrack = nextTrack;
       _position = Duration.zero;
       _isPlaying = true;
+      _lastPersistedPositionBucket = 0;
       _markTrackPlayed(nextTrack);
       notifyListeners();
       return;
@@ -839,6 +931,7 @@ class MusicAppController extends ChangeNotifier {
       if (!_audioEnabled || _player == null) {
         _position = Duration.zero;
         notifyListeners();
+        _persistSession();
         return;
       }
 
@@ -860,6 +953,7 @@ class MusicAppController extends ChangeNotifier {
       _currentTrack = previousTrack;
       _position = Duration.zero;
       _isPlaying = true;
+      _lastPersistedPositionBucket = 0;
       _markTrackPlayed(previousTrack);
       notifyListeners();
       return;
@@ -1009,6 +1103,7 @@ class MusicAppController extends ChangeNotifier {
       _position = Duration.zero;
       _isPlaying = false;
       _isPreparingPlayback = false;
+      _lastPersistedPositionBucket = null;
     } else if (_currentTrack != null) {
       final currentTrack = _currentTrack!;
       if (_currentCollection?.id == 'favorites') {
@@ -1031,6 +1126,7 @@ class MusicAppController extends ChangeNotifier {
     );
     _statusMessage = successMessage;
     notifyListeners();
+    _persistSession();
   }
 
   Future<void> _stopPlayback() async {
@@ -1047,21 +1143,31 @@ class MusicAppController extends ChangeNotifier {
     }
 
     final knownPaths = _tracks.map((track) => track.filePath).toSet();
-    final newTracks = filePaths
+    final supportedPaths = filePaths
         .where((path) => isSupportedAudioPath(path))
+        .toList(growable: false);
+    final duplicateCount = supportedPaths
+        .where((path) => knownPaths.contains(path))
+        .length;
+    final newTracks = supportedPaths
         .where((path) => !knownPaths.contains(path))
         .map((path) => buildTrackFromPath(path))
         .toList(growable: false);
 
     if (newTracks.isEmpty) {
-      _statusMessage = 'No new supported audio files were found.';
+      _statusMessage = duplicateCount > 0
+          ? 'Everything you picked is already in your ChiMusic library.'
+          : 'No supported audio files were found in that selection.';
       notifyListeners();
       return;
     }
 
     _tracks = <Track>[...newTracks, ..._tracks];
+    final skippedMessage = duplicateCount > 0
+        ? ' Skipped $duplicateCount item${duplicateCount == 1 ? '' : 's'} already in your library.'
+        : '';
     _statusMessage =
-        'Imported ${newTracks.length} local audio file${newTracks.length == 1 ? '' : 's'}.';
+        'Imported ${newTracks.length} local audio file${newTracks.length == 1 ? '' : 's'}.$skippedMessage';
 
     if (_currentTrack == null && hasMusic) {
       await _loadQueue(
@@ -1069,11 +1175,14 @@ class MusicAppController extends ChangeNotifier {
         initialIndex: 0,
         collection: allTracksCollection,
         autoplay: false,
+        clearStatusMessage: false,
       );
+      _persistSession();
       return;
     }
 
     notifyListeners();
+    _persistSession();
   }
 
   Future<void> _loadQueue(
@@ -1081,6 +1190,7 @@ class MusicAppController extends ChangeNotifier {
     required int initialIndex,
     required MusicCollection collection,
     required bool autoplay,
+    bool clearStatusMessage = true,
   }) async {
     if (tracks.isEmpty) {
       return;
@@ -1092,7 +1202,10 @@ class MusicAppController extends ChangeNotifier {
     final currentTrack = _queue[clampedIndex];
     _currentTrack = currentTrack;
     _position = Duration.zero;
-    _statusMessage = null;
+    _lastPersistedPositionBucket = 0;
+    if (clearStatusMessage) {
+      _statusMessage = null;
+    }
     _isPreparingPlayback = true;
     _isPlaying = autoplay && !_audioEnabled;
     _markTrackPlayed(currentTrack);
@@ -1149,6 +1262,7 @@ class MusicAppController extends ChangeNotifier {
       player.playerStateStream.listen((state) {
         _isPlaying = state.playing;
         notifyListeners();
+        _persistSession();
       }),
     );
 
@@ -1156,6 +1270,7 @@ class MusicAppController extends ChangeNotifier {
       player.positionStream.listen((position) {
         _position = position;
         notifyListeners();
+        _persistProgressIfNeeded();
       }),
     );
 
@@ -1222,6 +1337,7 @@ class MusicAppController extends ChangeNotifier {
 
     if (changed) {
       notifyListeners();
+      _persistSession();
     }
   }
 
@@ -1232,6 +1348,164 @@ class MusicAppController extends ChangeNotifier {
     if (_recentTrackIds.length > 20) {
       _recentTrackIds.removeRange(20, _recentTrackIds.length);
     }
+
+    _persistSession();
+  }
+
+  Future<void> _persistSession() {
+    final sessionStore = _sessionStore;
+    if (sessionStore == null) {
+      return Future<void>.value();
+    }
+
+    final snapshot = MusicSessionSnapshot(
+      tracks: List<Track>.from(_tracks),
+      likedTrackIds: Set<String>.from(_likedTrackIds),
+      savedCollectionIds: Set<String>.from(_savedCollectionIds),
+      recentTrackIds: List<String>.from(_recentTrackIds),
+      recentSearches: List<String>.from(_recentSearches),
+      selectedTab: _selectedTab,
+      libraryFilter: _libraryFilter,
+      librarySort: _librarySort,
+      searchQuery: _searchQuery,
+      queueTrackIds: _queue.map((track) => track.id).toList(growable: false),
+      currentTrackId: _currentTrack?.id,
+      currentCollectionId: _currentCollection?.id,
+      positionMs: _position.inMilliseconds,
+    );
+
+    _persistOperation = _persistOperation.then((_) async {
+      try {
+        await sessionStore.save(snapshot);
+      } catch (_) {
+        // Best-effort persistence keeps the UI responsive even if storage fails.
+      }
+    });
+
+    return _persistOperation;
+  }
+
+  Future<void> _restorePlaybackSnapshot(MusicSessionSnapshot snapshot) async {
+    final tracksById = {for (final track in _tracks) track.id: track};
+    final queue = snapshot.queueTrackIds
+        .map((trackId) => tracksById[trackId])
+        .whereType<Track>()
+        .toList(growable: false);
+    if (queue.isEmpty) {
+      return;
+    }
+
+    Track currentTrack = queue.first;
+    for (final track in queue) {
+      if (track.id == snapshot.currentTrackId) {
+        currentTrack = track;
+        break;
+      }
+    }
+    final currentIndex = queue.indexWhere(
+      (track) => track.id == currentTrack.id,
+    );
+    final initialPosition = _clampedPositionForTrack(
+      currentTrack,
+      Duration(milliseconds: snapshot.positionMs),
+    );
+
+    _queue = queue;
+    _currentTrack = currentTrack;
+    _currentCollection = _restoreCollectionFromId(snapshot.currentCollectionId);
+    _position = initialPosition;
+    _isPlaying = false;
+    _isPreparingPlayback = _audioEnabled && _player != null;
+    _lastPersistedPositionBucket = initialPosition.inSeconds ~/ 5;
+
+    if (!_audioEnabled || _player == null) {
+      _isPreparingPlayback = false;
+      return;
+    }
+
+    try {
+      final sources = queue
+          .map((track) => AudioSource.uri(Uri.file(track.filePath), tag: track))
+          .toList(growable: false);
+
+      final player = _player;
+
+      await player.setAudioSources(
+        sources,
+        initialIndex: currentIndex < 0 ? 0 : currentIndex,
+        initialPosition: initialPosition,
+      );
+      await player.pause();
+      _isPreparingPlayback = false;
+    } on PlayerException {
+      _isPreparingPlayback = false;
+      _isPlaying = false;
+      _statusMessage =
+          'Unable to restore the last playback queue in this environment.';
+    } catch (_) {
+      _isPreparingPlayback = false;
+      _isPlaying = false;
+      _statusMessage =
+          'Playback queue restore failed. Your library is still available.';
+    }
+  }
+
+  MusicCollection? _restoreCollectionFromId(String? collectionId) {
+    if (collectionId == null || collectionId.isEmpty) {
+      return null;
+    }
+
+    if (collectionId == 'all_tracks') {
+      return allTracksCollection;
+    }
+
+    if (collectionId == 'favorites') {
+      final favorites = favoriteTracks;
+      if (favorites.isEmpty) {
+        return null;
+      }
+      return _buildLikedSongsCollection(favorites);
+    }
+
+    for (final collection in importedCollections) {
+      if (collection.id == collectionId) {
+        return collection;
+      }
+    }
+
+    return null;
+  }
+
+  Duration _clampedPositionForTrack(Track track, Duration position) {
+    final duration = track.duration;
+    if (duration == null) {
+      return position;
+    }
+
+    if (position < Duration.zero) {
+      return Duration.zero;
+    }
+
+    if (position > duration) {
+      return duration;
+    }
+
+    return position;
+  }
+
+  void _persistProgressIfNeeded() {
+    final currentTrack = _currentTrack;
+    if (currentTrack == null) {
+      return;
+    }
+
+    final bucket = _position.inSeconds ~/ 5;
+    if (_lastPersistedPositionBucket == bucket) {
+      return;
+    }
+
+    _lastPersistedPositionBucket = bucket;
+    _persistSession();
   }
 
   @override
