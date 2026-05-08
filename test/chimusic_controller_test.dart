@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:chimusic/data/music_session_store.dart';
 import 'package:chimusic/models/music_models.dart';
 import 'package:chimusic/state/chimusic_controller.dart';
@@ -346,6 +348,41 @@ void main() {
       },
     );
 
+    test('flushSession waits for pending persistence to finish', () async {
+      final track = _track(
+        folderPath: '/music/ocean',
+        title: 'Blue Horizon',
+        artist: 'North Coast',
+        album: 'Sea Glass',
+        duration: const Duration(minutes: 4),
+        importedAt: DateTime(2026, 5, 6, 15),
+      );
+      final store = _BlockingSessionStore();
+      final controller = MusicAppController(
+        enableAudio: false,
+        sessionStore: store,
+        initialTracks: [track],
+      );
+      addTearDown(controller.dispose);
+
+      controller.toggleLikedTrack(track.id);
+      await store.firstSaveStarted.future;
+
+      var completed = false;
+      final flushFuture = controller.flushSession().then((_) {
+        completed = true;
+      });
+      await Future<void>.delayed(Duration.zero);
+
+      expect(completed, isFalse);
+
+      store.release();
+      await flushFuture;
+
+      expect(store.saveCallCount, 2);
+      expect(store.lastSaved?.likedTrackIds, {track.id});
+    });
+
     test(
       'removeCollectionFromLibrary removes only that collection from the session',
       () async {
@@ -465,5 +502,31 @@ class _FakeSessionStore implements MusicSessionStore {
   @override
   Future<void> save(MusicSessionSnapshot snapshot) async {
     lastSaved = snapshot;
+  }
+}
+
+class _BlockingSessionStore implements MusicSessionStore {
+  final Completer<void> firstSaveStarted = Completer<void>();
+  final Completer<void> _release = Completer<void>();
+  MusicSessionSnapshot? lastSaved;
+  int saveCallCount = 0;
+
+  @override
+  Future<MusicSessionSnapshot> load() async => const MusicSessionSnapshot();
+
+  @override
+  Future<void> save(MusicSessionSnapshot snapshot) async {
+    saveCallCount += 1;
+    lastSaved = snapshot;
+    if (!firstSaveStarted.isCompleted) {
+      firstSaveStarted.complete();
+    }
+    await _release.future;
+  }
+
+  void release() {
+    if (!_release.isCompleted) {
+      _release.complete();
+    }
   }
 }

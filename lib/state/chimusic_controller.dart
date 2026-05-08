@@ -1177,12 +1177,12 @@ class MusicAppController extends ChangeNotifier {
         autoplay: false,
         clearStatusMessage: false,
       );
-      _persistSession();
+      await flushSession();
       return;
     }
 
     notifyListeners();
-    _persistSession();
+    await flushSession();
   }
 
   Future<void> _loadQueue(
@@ -1350,6 +1350,10 @@ class MusicAppController extends ChangeNotifier {
     }
 
     _persistSession();
+  }
+
+  Future<void> flushSession() async {
+    await _persistSession();
   }
 
   Future<void> _persistSession() {
