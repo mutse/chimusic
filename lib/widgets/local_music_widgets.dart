@@ -118,7 +118,7 @@ class EmptyMusicState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GlassPanel(
-      padding: const EdgeInsets.all(26),
+      padding: const EdgeInsets.all(24),
       borderRadius: BorderRadius.circular(34),
       tintColors: [
         LiquidPalette.surfaceRaised.withValues(alpha: 0.98),
@@ -155,12 +155,15 @@ class EmptyMusicState extends StatelessWidget {
               color: Colors.white.withValues(alpha: 0.72),
             ),
           ),
-          const SizedBox(height: 14),
-          Text(
-            'Import files to unlock Home recommendations, Search discovery, and a real Library flow based on your own audio.',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Colors.white.withValues(alpha: 0.52),
-            ),
+          const SizedBox(height: 18),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: const [
+              GlassPill(label: 'Home'),
+              GlassPill(label: 'Search'),
+              GlassPill(label: 'Library'),
+            ],
           ),
           const SizedBox(height: 20),
           ImportMusicActions(controller: controller),

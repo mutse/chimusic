@@ -284,12 +284,12 @@ class SectionHeader extends StatelessWidget {
   const SectionHeader({
     super.key,
     required this.title,
-    required this.subtitle,
+    this.subtitle,
     this.trailing,
   });
 
   final String title;
-  final String subtitle;
+  final String? subtitle;
   final Widget? trailing;
 
   @override
@@ -307,13 +307,15 @@ class SectionHeader extends StatelessWidget {
                   fontWeight: FontWeight.w700,
                 ),
               ),
-              const SizedBox(height: 4),
-              Text(
-                subtitle,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Colors.white.withValues(alpha: 0.58),
+              if (subtitle != null && subtitle!.trim().isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  subtitle!,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Colors.white.withValues(alpha: 0.58),
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
         ),
@@ -327,14 +329,14 @@ class SectionCard extends StatelessWidget {
   const SectionCard({
     super.key,
     required this.title,
-    required this.subtitle,
     required this.child,
+    this.subtitle,
     this.trailing,
     this.padding = const EdgeInsets.all(20),
   });
 
   final String title;
-  final String subtitle;
+  final String? subtitle;
   final Widget child;
   final Widget? trailing;
   final EdgeInsetsGeometry padding;
@@ -354,6 +356,78 @@ class SectionCard extends StatelessWidget {
           SectionHeader(title: title, subtitle: subtitle, trailing: trailing),
           const SizedBox(height: 18),
           child,
+        ],
+      ),
+    );
+  }
+}
+
+class MetricGlassCard extends StatelessWidget {
+  const MetricGlassCard({
+    super.key,
+    required this.value,
+    required this.label,
+    required this.icon,
+    this.onTap,
+    this.accent,
+    this.iconColor,
+  });
+
+  final String value;
+  final String label;
+  final IconData icon;
+  final VoidCallback? onTap;
+  final List<Color>? accent;
+  final Color? iconColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors =
+        accent ??
+        [
+          LiquidPalette.surfaceSoft.withValues(alpha: 0.62),
+          LiquidPalette.surface.withValues(alpha: 0.92),
+        ];
+
+    return GlassPanel(
+      onTap: onTap,
+      padding: const EdgeInsets.all(16),
+      borderRadius: BorderRadius.circular(24),
+      tintColors: colors,
+      borderColor: colors.last.withValues(alpha: 0.12),
+      withShadow: false,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(
+              icon,
+              size: 20,
+              color: iconColor ?? Colors.white.withValues(alpha: 0.92),
+            ),
+          ),
+          const Spacer(),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.headlineSmall,
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Colors.white.withValues(alpha: 0.62),
+            ),
+          ),
         ],
       ),
     );

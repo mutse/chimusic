@@ -26,10 +26,13 @@ class LibraryScreen extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               GlassPanel(
-                padding: const EdgeInsets.all(22),
-                borderRadius: BorderRadius.circular(32),
+                padding: const EdgeInsets.all(20),
+                borderRadius: BorderRadius.circular(34),
+                tintColors: [
+                  LiquidPalette.surfaceRaised.withValues(alpha: 0.98),
+                  LiquidPalette.deepCyan.withValues(alpha: 0.78),
+                ],
                 child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Expanded(
                       child: Column(
@@ -40,12 +43,22 @@ class LibraryScreen extends StatelessWidget {
                             style: Theme.of(context).textTheme.displaySmall,
                           ),
                           const SizedBox(height: 8),
-                          Text(
-                            'Manage saved folders, liked tracks, and the full collection built from your local file imports.',
-                            style: Theme.of(context).textTheme.bodyLarge
-                                ?.copyWith(
-                                  color: Colors.white.withValues(alpha: 0.68),
-                                ),
+                          Wrap(
+                            spacing: 10,
+                            runSpacing: 10,
+                            children: [
+                              GlassPill(
+                                label:
+                                    '${controller.savedCollectionCount} saved',
+                              ),
+                              GlassPill(
+                                label: '${controller.likedTracksCount} liked',
+                              ),
+                              GlassPill(
+                                label:
+                                    '${controller.importedTrackCount} tracks',
+                              ),
+                            ],
                           ),
                         ],
                       ),
@@ -108,8 +121,6 @@ class LibraryScreen extends StatelessWidget {
                 const SizedBox(height: 12),
                 SectionCard(
                   title: 'Filters',
-                  subtitle:
-                      'Shape the library view around the content you want to manage right now',
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -145,8 +156,6 @@ class LibraryScreen extends StatelessWidget {
                   const SizedBox(height: 30),
                   SectionCard(
                     title: 'Pinned Collections',
-                    subtitle:
-                        'Saved folders and strong recent mixes that deserve one-tap access',
                     child: SizedBox(
                       height: 286,
                       child: ListView.separated(
@@ -167,8 +176,6 @@ class LibraryScreen extends StatelessWidget {
                     title: controller.libraryFilter == LibraryFilter.favorites
                         ? 'Saved Collections'
                         : 'Collections',
-                    subtitle:
-                        'Open, save, and play folder-based queues from your imported library',
                     child: Column(
                       children: [
                         for (
@@ -194,8 +201,6 @@ class LibraryScreen extends StatelessWidget {
                     title: controller.libraryFilter == LibraryFilter.favorites
                         ? 'Liked Tracks'
                         : 'Tracks',
-                    subtitle:
-                        'Play, like, and revisit the files that define your current local catalog',
                     child: Column(
                       children: [
                         for (
@@ -250,42 +255,59 @@ class _LibrarySummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GlassPanel(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(22),
       borderRadius: BorderRadius.circular(34),
       tintColors: [
         LiquidPalette.surfaceRaised.withValues(alpha: 0.98),
         LiquidPalette.surface.withValues(alpha: 0.95),
       ],
+      withShadow: false,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              GlassPill(label: '${controller.importedTrackCount} tracks'),
-              GlassPill(label: '${controller.collectionCount} folders'),
-              GlassPill(label: '${controller.artistCount} artists'),
-              GlassPill(label: '${controller.savedCollectionCount} saved'),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Built from your own files',
-            style: Theme.of(context).textTheme.headlineLarge,
-          ),
-          const SizedBox(height: 10),
-          Text(
-            'The library now behaves more like a real product surface: saved collections, filters, sorting, and playback entry points all live together.',
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-              color: Colors.white.withValues(alpha: 0.70),
-            ),
-          ),
-          const SizedBox(height: 14),
-          Text(
-            'Your music remains on device, and removing items from ChiMusic never deletes the original files from storage.',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Colors.white.withValues(alpha: 0.56),
+          Text('Overview', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 18),
+          SizedBox(
+            height: 192,
+            child: GridView.count(
+              crossAxisCount: 2,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+              childAspectRatio: 1.35,
+              children: [
+                MetricGlassCard(
+                  value: '${controller.importedTrackCount}',
+                  label: 'Tracks',
+                  icon: Icons.music_note_rounded,
+                  onTap: () =>
+                      controller.openLibraryFilter(LibraryFilter.tracks),
+                  accent: const [Color(0xFF153C2A), Color(0xFF1ED760)],
+                ),
+                MetricGlassCard(
+                  value: '${controller.collectionCount}',
+                  label: 'Folders',
+                  icon: Icons.folder_rounded,
+                  onTap: () =>
+                      controller.openLibraryFilter(LibraryFilter.folders),
+                  accent: const [Color(0xFF3A280F), Color(0xFFF4A259)],
+                ),
+                MetricGlassCard(
+                  value: '${controller.artistCount}',
+                  label: 'Artists',
+                  icon: Icons.person_rounded,
+                  accent: const [Color(0xFF10233E), Color(0xFF4B7BFF)],
+                ),
+                MetricGlassCard(
+                  value: '${controller.savedCollectionCount}',
+                  label: 'Saved',
+                  icon: Icons.bookmark_rounded,
+                  onTap: () =>
+                      controller.openLibraryFilter(LibraryFilter.favorites),
+                  accent: const [Color(0xFF3B1E3A), Color(0xFF8B5CF6)],
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 18),
@@ -350,13 +372,14 @@ class _LikedSongsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GlassPanel(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(22),
       borderRadius: BorderRadius.circular(34),
       tintColors: [
         const Color(0xFF3B1E3A).withValues(alpha: 0.78),
         const Color(0xFF8B5CF6).withValues(alpha: 0.18),
       ],
       borderColor: const Color(0xFF8B5CF6).withValues(alpha: 0.10),
+      withShadow: false,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -376,7 +399,7 @@ class _LikedSongsCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            '${controller.likedTracksCount} tracks are currently favorited in this session.',
+            '${controller.likedTracksCount} tracks',
             style: Theme.of(context).textTheme.bodyLarge?.copyWith(
               color: Colors.white.withValues(alpha: 0.74),
             ),
@@ -443,13 +466,14 @@ class _ImportedAudioCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GlassPanel(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(22),
       borderRadius: BorderRadius.circular(34),
       tintColors: [
         const Color(0xFF10233E).withValues(alpha: 0.76),
         const Color(0xFF4B7BFF).withValues(alpha: 0.16),
       ],
       borderColor: const Color(0xFF4B7BFF).withValues(alpha: 0.10),
+      withShadow: false,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -469,7 +493,7 @@ class _ImportedAudioCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            '${controller.importedTrackCount} tracks across ${controller.albumCount} albums are ready for queue playback.',
+            '${controller.importedTrackCount} tracks • ${controller.albumCount} albums',
             style: Theme.of(context).textTheme.bodyLarge?.copyWith(
               color: Colors.white.withValues(alpha: 0.74),
             ),
@@ -642,7 +666,7 @@ class _LibraryCollectionRow extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    collection.description,
+                    collection.subtitle,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(

@@ -59,21 +59,39 @@ class _SearchScreenState extends State<SearchScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               GlassPanel(
-                padding: const EdgeInsets.all(22),
-                borderRadius: BorderRadius.circular(32),
+                padding: const EdgeInsets.all(20),
+                borderRadius: BorderRadius.circular(34),
+                tintColors: [
+                  LiquidPalette.surfaceRaised.withValues(alpha: 0.98),
+                  LiquidPalette.deepCyan.withValues(alpha: 0.78),
+                ],
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Search',
-                      style: Theme.of(context).textTheme.displaySmall,
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Search',
+                            style: Theme.of(context).textTheme.displaySmall,
+                          ),
+                        ),
+                        const GlassPill(label: 'On device'),
+                      ],
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Explore your imported artists, folders, albums, and audio formats from one fast search surface.',
-                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        color: Colors.white.withValues(alpha: 0.68),
-                      ),
+                    const SizedBox(height: 14),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        GlassPill(
+                          label: '${controller.importedTrackCount} tracks',
+                        ),
+                        GlassPill(label: '${controller.artistCount} artists'),
+                        GlassPill(
+                          label: '${controller.collectionCount} folders',
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -103,8 +121,6 @@ class _SearchScreenState extends State<SearchScreen> {
                 if (controller.recentSearches.isNotEmpty) ...[
                   SectionCard(
                     title: 'Recent Searches',
-                    subtitle:
-                        'Reusable jumps back into the terms you searched most recently',
                     trailing: GlassPill(
                       label: 'Clear',
                       leading: const Icon(
@@ -132,12 +148,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   const SizedBox(height: 30),
                 ],
                 SectionCard(
-                  title: hasQuery
-                      ? 'Matching Suggestions'
-                      : 'Trending in Your Library',
-                  subtitle: hasQuery
-                      ? 'Tap a term to refine the current search direction'
-                      : 'Artists, titles, and folders that are showing up most often',
+                  title: hasQuery ? 'Suggestions' : 'Trending',
                   child: Wrap(
                     spacing: 10,
                     runSpacing: 10,
@@ -156,26 +167,19 @@ class _SearchScreenState extends State<SearchScreen> {
                 ),
                 const SizedBox(height: 30),
                 SectionCard(
-                  title: 'Browse All',
-                  subtitle:
-                      'Discovery cards generated from the strongest metadata inside your local collection',
+                  title: 'Browse',
                   child: _BrowseGrid(terms: controller.browseSuggestions),
                 ),
                 if (hasQuery && topTrack != null) ...[
                   const SizedBox(height: 30),
                   SectionCard(
                     title: 'Top Result',
-                    subtitle:
-                        'Best ranked match across your current local music library',
                     child: _TopResultCard(track: topTrack),
                   ),
                 ],
                 const SizedBox(height: 30),
                 SectionCard(
                   title: hasQuery ? 'Tracks' : 'Recent Tracks',
-                  subtitle: hasQuery
-                      ? 'Search results update while you type'
-                      : 'Fresh imports and continue-listening tracks ready to play',
                   child: controller.searchTrackResults.isEmpty
                       ? const _SearchPlaceholder(
                           message: 'No matching tracks were found.',
@@ -210,10 +214,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 ),
                 const SizedBox(height: 30),
                 SectionCard(
-                  title: hasQuery ? 'Collections' : 'Browse Collections',
-                  subtitle: hasQuery
-                      ? 'Open a folder or saved mix directly from results'
-                      : 'Collections created from your folder structure and saved picks',
+                  title: 'Collections',
                   child: controller.searchCollectionResults.isEmpty
                       ? const _SearchPlaceholder(
                           message: 'No matching collections were found.',
@@ -246,6 +247,7 @@ class _SearchHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasQuery = controller.searchQuery.trim().isNotEmpty;
+    final wide = isWideWidth(context);
 
     return GlassPanel(
       padding: const EdgeInsets.all(22),
@@ -257,22 +259,9 @@ class _SearchHero extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: const [
-              GlassPill(label: 'Artists'),
-              GlassPill(label: 'Albums'),
-              GlassPill(label: 'Folders'),
-              GlassPill(label: 'Formats'),
-            ],
-          ),
-          const SizedBox(height: 16),
           Text(
-            'Search stays on device and only scans the library you imported into ChiMusic.',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Colors.white.withValues(alpha: 0.52),
-            ),
+            hasQuery ? 'Live results' : 'Start with a search',
+            style: Theme.of(context).textTheme.titleLarge,
           ),
           const SizedBox(height: 12),
           GlassPanel(
@@ -298,8 +287,7 @@ class _SearchHero extends StatelessWidget {
                     textInputAction: TextInputAction.search,
                     style: Theme.of(context).textTheme.titleMedium,
                     decoration: const InputDecoration(
-                      hintText:
-                          'Search title, artist, album, folder, or file type',
+                      hintText: 'Search title, artist, album, folder, or type',
                     ),
                   ),
                 ),
@@ -318,6 +306,54 @@ class _SearchHero extends StatelessWidget {
               ],
             ),
           ),
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: const [
+              GlassPill(label: 'Artists'),
+              GlassPill(label: 'Albums'),
+              GlassPill(label: 'Folders'),
+              GlassPill(label: 'Formats'),
+            ],
+          ),
+          if (controller.hasMusic) ...[
+            const SizedBox(height: 18),
+            GridView.count(
+              crossAxisCount: wide ? 4 : 2,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+              childAspectRatio: wide ? 1.55 : 1.25,
+              children: [
+                MetricGlassCard(
+                  value: '${controller.importedTrackCount}',
+                  label: 'Tracks',
+                  icon: Icons.music_note_rounded,
+                  accent: const [Color(0xFF153C2A), Color(0xFF1ED760)],
+                ),
+                MetricGlassCard(
+                  value: '${controller.artistCount}',
+                  label: 'Artists',
+                  icon: Icons.person_rounded,
+                  accent: const [Color(0xFF10233E), Color(0xFF4B7BFF)],
+                ),
+                MetricGlassCard(
+                  value: '${controller.albumCount}',
+                  label: 'Albums',
+                  icon: Icons.album_rounded,
+                  accent: const [Color(0xFF3A280F), Color(0xFFF4A259)],
+                ),
+                MetricGlassCard(
+                  value: '${controller.collectionCount}',
+                  label: 'Folders',
+                  icon: Icons.folder_rounded,
+                  accent: const [Color(0xFF3B1E3A), Color(0xFF8B5CF6)],
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -341,54 +377,59 @@ class _BrowseGrid extends StatelessWidget {
     ];
     final controller = ChiMusicScope.watch(context);
 
-    return Wrap(
-      spacing: 14,
-      runSpacing: 14,
-      children: [
-        for (var index = 0; index < terms.length; index++)
-          SizedBox(
-            width: isWideWidth(context) ? 220 : double.infinity,
-            child: GlassPanel(
-              onTap: () => controller.applySearchSuggestion(terms[index]),
-              padding: const EdgeInsets.all(18),
-              borderRadius: BorderRadius.circular(28),
-              tintColors: [
-                palettes[index % palettes.length].first.withValues(alpha: 0.72),
-                palettes[index % palettes.length].last.withValues(alpha: 0.18),
-              ],
-              borderColor: palettes[index % palettes.length].last.withValues(
-                alpha: 0.12,
-              ),
-              withShadow: false,
-              child: SizedBox(
-                height: 92,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(
-                      Icons.graphic_eq_rounded,
-                      color: Colors.white.withValues(alpha: 0.90),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = isWideWidth(context) ? 4 : 2;
+        const spacing = 14.0;
+        final width =
+            (constraints.maxWidth - (spacing * (columns - 1))) / columns;
+
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children: [
+            for (var index = 0; index < terms.length; index++)
+              SizedBox(
+                width: width,
+                child: GlassPanel(
+                  onTap: () => controller.applySearchSuggestion(terms[index]),
+                  padding: const EdgeInsets.all(18),
+                  borderRadius: BorderRadius.circular(28),
+                  tintColors: [
+                    palettes[index % palettes.length].first.withValues(
+                      alpha: 0.72,
                     ),
-                    const Spacer(),
-                    Text(
-                      terms[index],
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Search now',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Colors.white.withValues(alpha: 0.68),
-                      ),
+                    palettes[index % palettes.length].last.withValues(
+                      alpha: 0.18,
                     ),
                   ],
+                  borderColor: palettes[index % palettes.length].last
+                      .withValues(alpha: 0.12),
+                  withShadow: false,
+                  child: SizedBox(
+                    height: 104,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          Icons.graphic_eq_rounded,
+                          color: Colors.white.withValues(alpha: 0.90),
+                        ),
+                        const Spacer(),
+                        Text(
+                          terms[index],
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
-            ),
-          ),
-      ],
+          ],
+        );
+      },
     );
   }
 }
@@ -402,6 +443,7 @@ class _TopResultCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = ChiMusicScope.watch(context);
     final collection = controller.collectionForTrack(track);
+    final wide = isWideWidth(context);
 
     return GlassPanel(
       onTap: () => controller.playTrack(track, collection: collection),
@@ -411,95 +453,121 @@ class _TopResultCard extends StatelessWidget {
         track.palette.first.withValues(alpha: 0.20),
         LiquidPalette.surfaceRaised.withValues(alpha: 0.96),
       ],
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ArtworkCover(
-            title: track.album,
-            palette: track.palette,
-            size: 132,
-            showTitle: true,
-            icon: Icons.music_note_rounded,
-          ),
-          const SizedBox(width: 18),
-          Expanded(
-            child: Column(
+      child: wide
+          ? Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  track.title,
-                  style: Theme.of(context).textTheme.headlineLarge,
+                ArtworkCover(
+                  title: track.album,
+                  palette: track.palette,
+                  size: 132,
+                  showTitle: true,
+                  icon: Icons.music_note_rounded,
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  '${track.artist} • ${collection?.title ?? track.album}',
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.72),
-                  ),
+                const SizedBox(width: 18),
+                Expanded(
+                  child: _TopResultBody(track: track, collection: collection),
                 ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [
-                    GlassPill(label: track.typeLabel),
-                    if (collection != null)
-                      GlassPill(label: collection.kind.label),
-                    GlassPill(label: formatDuration(track.duration)),
-                  ],
+              ],
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ArtworkCover(
+                  title: track.album,
+                  palette: track.palette,
+                  size: 132,
+                  showTitle: true,
+                  icon: Icons.music_note_rounded,
                 ),
                 const SizedBox(height: 18),
-                Row(
+                _TopResultBody(track: track, collection: collection),
+              ],
+            ),
+    );
+  }
+}
+
+class _TopResultBody extends StatelessWidget {
+  const _TopResultBody({required this.track, required this.collection});
+
+  final Track track;
+  final MusicCollection? collection;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = ChiMusicScope.watch(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(track.title, style: Theme.of(context).textTheme.headlineLarge),
+        const SizedBox(height: 8),
+        Text(
+          '${track.artist} • ${collection?.title ?? track.album}',
+          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+            color: Colors.white.withValues(alpha: 0.72),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            GlassPill(label: track.typeLabel),
+            if (collection != null) GlassPill(label: collection!.kind.label),
+            GlassPill(label: formatDuration(track.duration)),
+          ],
+        ),
+        const SizedBox(height: 18),
+        Row(
+          children: [
+            GlassIconButton(
+              icon: controller.isTrackLiked(track.id)
+                  ? Icons.favorite_rounded
+                  : Icons.favorite_border_rounded,
+              selected: controller.isTrackLiked(track.id),
+              onTap: () => controller.toggleLikedTrack(track.id),
+              size: 48,
+              iconSize: 20,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: GlassPanel(
+                onTap: () =>
+                    controller.playTrack(track, collection: collection),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 15,
+                ),
+                borderRadius: BorderRadius.circular(24),
+                tintColors: [
+                  LiquidPalette.aqua.withValues(alpha: 0.95),
+                  LiquidPalette.mint.withValues(alpha: 0.72),
+                ],
+                borderColor: LiquidPalette.mint.withValues(alpha: 0.24),
+                withShadow: false,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    GlassIconButton(
-                      icon: controller.isTrackLiked(track.id)
-                          ? Icons.favorite_rounded
-                          : Icons.favorite_border_rounded,
-                      selected: controller.isTrackLiked(track.id),
-                      onTap: () => controller.toggleLikedTrack(track.id),
-                      size: 48,
-                      iconSize: 20,
+                    const Icon(
+                      Icons.play_arrow_rounded,
+                      color: LiquidPalette.ink,
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: GlassPanel(
-                        onTap: () =>
-                            controller.playTrack(track, collection: collection),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 18,
-                          vertical: 15,
-                        ),
-                        borderRadius: BorderRadius.circular(24),
-                        tintColors: [
-                          LiquidPalette.aqua.withValues(alpha: 0.95),
-                          LiquidPalette.mint.withValues(alpha: 0.72),
-                        ],
-                        borderColor: LiquidPalette.mint.withValues(alpha: 0.24),
-                        withShadow: false,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(
-                              Icons.play_arrow_rounded,
-                              color: LiquidPalette.ink,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Play Result',
-                              style: Theme.of(context).textTheme.titleMedium
-                                  ?.copyWith(color: LiquidPalette.ink),
-                            ),
-                          ],
-                        ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Play',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: LiquidPalette.ink,
                       ),
                     ),
                   ],
                 ),
-              ],
+              ),
             ),
-          ),
-        ],
-      ),
+          ],
+        ),
+      ],
     );
   }
 }
