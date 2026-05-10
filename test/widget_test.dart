@@ -1,11 +1,15 @@
+import 'dart:convert';
 import 'dart:async';
 
 import 'package:chimusic/app/chimusic_app.dart';
 import 'package:chimusic/data/music_session_store.dart';
 import 'package:chimusic/models/music_models.dart';
 import 'package:chimusic/state/chimusic_controller.dart';
+import 'package:chimusic/state/chimusic_scope.dart';
+import 'package:chimusic/widgets/app_shell.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   testWidgets('boots into the primary navigation shell', (tester) async {
@@ -64,6 +68,69 @@ void main() {
     expect(store.saveCallCount, 2);
     expect(store.lastSaved?.likedTrackIds, {track.id});
   });
+
+  testWidgets(
+    'launch restores the persisted library and last playback automatically',
+    (tester) async {
+      final track = Track(
+        id: '/music/archive/Daft Punk - Voyager.mp3',
+        filePath: '/music/archive/Daft Punk - Voyager.mp3',
+        fileName: 'Daft Punk - Voyager.mp3',
+        folderPath: '/music/archive',
+        title: 'Voyager',
+        artist: 'Daft Punk',
+        album: 'Archive',
+        palette: const [
+          Color(0xFF1ED760),
+          Color(0xFF0F5132),
+          Color(0xFF111318),
+        ],
+        importedAt: DateTime(2026, 5, 6, 15),
+        duration: const Duration(minutes: 3, seconds: 44),
+        fileExtension: 'mp3',
+      );
+      final snapshot = MusicSessionSnapshot(
+        tracks: [track],
+        likedTrackIds: {track.id},
+        savedCollectionIds: {track.folderPath},
+        recentTrackIds: [track.id],
+        selectedTab: MusicTab.library,
+        libraryFilter: LibraryFilter.favorites,
+        librarySort: LibrarySort.recent,
+        queueTrackIds: [track.id],
+        currentTrackId: track.id,
+        currentCollectionId: track.folderPath,
+        positionMs: 61000,
+      );
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'chimusic.session.v1': jsonEncode(snapshot.toJson()),
+      });
+      final controller = MusicAppController(
+        enableAudio: false,
+        sessionStore: SharedPreferencesMusicSessionStore(),
+      );
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(ChiMusicRoot(controller: controller));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.pump(const Duration(milliseconds: 350));
+
+      expect(find.byType(AppShell), findsOneWidget);
+
+      final context = tester.element(find.byType(AppShell));
+      final restoredController = ChiMusicScope.read(context);
+
+      expect(restoredController.importedTrackCount, 1);
+      expect(restoredController.savedCollectionCount, 1);
+      expect(restoredController.likedTracksCount, 1);
+      expect(restoredController.selectedTab, MusicTab.library);
+      expect(restoredController.libraryFilter, LibraryFilter.favorites);
+      expect(restoredController.currentTrack?.title, 'Voyager');
+      expect(restoredController.position, const Duration(seconds: 61));
+      expect(find.text('Voyager'), findsWidgets);
+    },
+  );
 }
 
 class _BlockingSessionStore implements MusicSessionStore {

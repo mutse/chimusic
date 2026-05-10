@@ -31,7 +31,7 @@ class _ChiMusicRootState extends State<ChiMusicRoot>
     _controller =
         widget.controller ??
         MusicAppController(sessionStore: SharedPreferencesMusicSessionStore());
-    _restoreFuture = _ownsController ? _controller.restoreSession() : null;
+    _restoreFuture = _controller.restoreSession();
   }
 
   @override

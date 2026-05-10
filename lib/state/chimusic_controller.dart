@@ -1514,6 +1514,7 @@ class MusicAppController extends ChangeNotifier {
 
   @override
   void dispose() {
+    unawaited(flushSession());
     for (final subscription in _subscriptions) {
       subscription.cancel();
     }

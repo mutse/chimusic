@@ -383,6 +383,35 @@ void main() {
       expect(store.lastSaved?.likedTrackIds, {track.id});
     });
 
+    test('dispose triggers one final session flush', () async {
+      final track = _track(
+        folderPath: '/music/ocean',
+        title: 'Blue Horizon',
+        artist: 'North Coast',
+        album: 'Sea Glass',
+        duration: const Duration(minutes: 4),
+        importedAt: DateTime(2026, 5, 6, 15),
+      );
+      final store = _BlockingSessionStore();
+      final controller = MusicAppController(
+        enableAudio: false,
+        sessionStore: store,
+        initialTracks: [track],
+      );
+
+      controller.toggleLikedTrack(track.id);
+      await store.firstSaveStarted.future;
+
+      controller.dispose();
+      await Future<void>.delayed(Duration.zero);
+
+      store.release();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(store.saveCallCount, 2);
+      expect(store.lastSaved?.likedTrackIds, {track.id});
+    });
+
     test(
       'removeCollectionFromLibrary removes only that collection from the session',
       () async {
