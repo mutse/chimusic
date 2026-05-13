@@ -107,6 +107,37 @@ class AppDetailsSheet extends StatelessWidget {
                 runSpacing: 12,
                 children: [
                   GlassPanel(
+                    onTap: controller.hasPlaybackHistory
+                        ? controller.clearPlaybackHistory
+                        : null,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 14,
+                    ),
+                    borderRadius: BorderRadius.circular(24),
+                    tintColors: [
+                      LiquidPalette.surfaceSoft.withValues(alpha: 0.78),
+                      LiquidPalette.surface.withValues(alpha: 0.92),
+                    ],
+                    withShadow: false,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.history_rounded,
+                          color: Colors.white.withValues(alpha: 0.82),
+                        ),
+                        const SizedBox(width: 10),
+                        Text(
+                          controller.hasPlaybackHistory
+                              ? 'Clear Playback History'
+                              : 'Playback History Already Clear',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                      ],
+                    ),
+                  ),
+                  GlassPanel(
                     onTap: controller.recentSearches.isEmpty
                         ? null
                         : controller.clearRecentSearches,
@@ -124,7 +155,7 @@ class AppDetailsSheet extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
-                          Icons.history_toggle_off_rounded,
+                          Icons.manage_search_rounded,
                           color: Colors.white.withValues(alpha: 0.82),
                         ),
                         const SizedBox(width: 10),

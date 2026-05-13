@@ -58,6 +58,9 @@ class LibraryScreen extends StatelessWidget {
                                 label:
                                     '${controller.importedTrackCount} tracks',
                               ),
+                              GlassPill(
+                                label: '${controller.totalPlayCount} plays',
+                              ),
                             ],
                           ),
                         ],
@@ -189,6 +192,45 @@ class LibraryScreen extends StatelessWidget {
                           ),
                           if (index !=
                               controller.filteredLibraryCollections.length - 1)
+                            const SizedBox(height: 12),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+                if (controller.playbackHistoryTracks.isNotEmpty) ...[
+                  const SizedBox(height: 30),
+                  SectionCard(
+                    title: 'Playback History',
+                    subtitle:
+                        'Every play is saved locally with last position and replay count.',
+                    trailing: GlassPill(
+                      label:
+                          '${controller.playbackHistoryCount} track${controller.playbackHistoryCount == 1 ? '' : 's'}',
+                    ),
+                    child: Column(
+                      children: [
+                        for (
+                          var index = 0;
+                          index < controller.playbackHistoryTracks.length;
+                          index++
+                        ) ...[
+                          TrackRow(
+                            track: controller.playbackHistoryTracks[index],
+                            onTap: () {
+                              controller.playTrack(
+                                controller.playbackHistoryTracks[index],
+                                collection: controller.collectionForTrack(
+                                  controller.playbackHistoryTracks[index],
+                                ),
+                              );
+                            },
+                            trailing: _PlaybackHistoryTrackActions(
+                              track: controller.playbackHistoryTracks[index],
+                            ),
+                          ),
+                          if (index !=
+                              controller.playbackHistoryTracks.length - 1)
                             const SizedBox(height: 12),
                         ],
                       ],
@@ -732,6 +774,41 @@ class _LibraryTrackActions extends StatelessWidget {
           selected: controller.isTrackLiked(track.id),
           size: 38,
           iconSize: 16,
+        ),
+      ],
+    );
+  }
+}
+
+class _PlaybackHistoryTrackActions extends StatelessWidget {
+  const _PlaybackHistoryTrackActions({required this.track});
+
+  final Track track;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = ChiMusicScope.watch(context);
+    final entry = controller.playbackHistoryEntryForTrack(track.id);
+    if (entry == null) {
+      return _LibraryTrackActions(track: track);
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text(
+          formatRelativePlayTime(entry.lastPlayedAt),
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: Colors.white.withValues(alpha: 0.68),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          '${entry.playCount} play${entry.playCount == 1 ? '' : 's'} • ${formatDuration(entry.lastPosition)}',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Colors.white.withValues(alpha: 0.50),
+          ),
         ),
       ],
     );

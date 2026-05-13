@@ -374,7 +374,10 @@ class _HomeContent extends StatelessWidget {
           ),
         const SizedBox(height: 30),
         SectionCard(
-          title: 'Recently Played',
+          title: 'Playback History',
+          subtitle:
+              'Saved on this device so you can jump back into the tracks you touched most recently.',
+          trailing: GlassPill(label: '${controller.totalPlayCount} plays'),
           child: _ListeningGrid(controller: controller),
         ),
         const SizedBox(height: 30),
@@ -644,6 +647,35 @@ class _SessionSnapshot extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 18),
+          GlassPanel(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            borderRadius: BorderRadius.circular(24),
+            tintColors: [
+              LiquidPalette.surfaceSoft.withValues(alpha: 0.62),
+              LiquidPalette.surface.withValues(alpha: 0.92),
+            ],
+            withShadow: false,
+            child: Row(
+              children: [
+                Icon(
+                  Icons.history_rounded,
+                  color: Colors.white.withValues(alpha: 0.82),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    controller.hasPlaybackHistory
+                        ? '${controller.playbackHistoryCount} tracks in history • ${controller.totalPlayCount} total plays'
+                        : 'Playback history starts saving automatically as soon as you press play.',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Colors.white.withValues(alpha: 0.72),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
           Row(
             children: [
               Expanded(
@@ -859,6 +891,8 @@ class _ListeningCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = ChiMusicScope.watch(context);
     final collection = controller.collectionForTrack(track);
+    final historyEntry = controller.playbackHistoryEntryForTrack(track.id);
+    final playbackProgress = controller.playbackHistoryProgressForTrack(track);
 
     return GlassPanel(
       onTap: () => controller.playTrack(track, collection: collection),
@@ -920,7 +954,9 @@ class _ListeningCard extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  collection?.title ?? track.album,
+                  historyEntry == null
+                      ? (collection?.title ?? track.album)
+                      : '${formatRelativePlayTime(historyEntry.lastPlayedAt)} • ${historyEntry.playCount} play${historyEntry.playCount == 1 ? '' : 's'}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -930,13 +966,29 @@ class _ListeningCard extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               Text(
-                formatDuration(track.duration),
+                historyEntry == null
+                    ? formatDuration(track.duration)
+                    : formatDuration(historyEntry.lastPosition),
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: Colors.white.withValues(alpha: 0.48),
                 ),
               ),
             ],
           ),
+          if (historyEntry != null) ...[
+            const SizedBox(height: 10),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: LinearProgressIndicator(
+                value: playbackProgress,
+                minHeight: 5,
+                backgroundColor: Colors.white.withValues(alpha: 0.08),
+                valueColor: const AlwaysStoppedAnimation<Color>(
+                  LiquidPalette.aqua,
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );

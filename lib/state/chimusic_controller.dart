@@ -16,6 +16,8 @@ class MusicAppController extends ChangeNotifier {
     bool enableAudio = true,
     MusicSessionStore? sessionStore,
     List<Track> initialTracks = const <Track>[],
+    List<PlaybackHistoryEntry> initialPlaybackHistory =
+        const <PlaybackHistoryEntry>[],
     Set<String> initialLikedTrackIds = const <String>{},
     Set<String> initialSavedCollectionIds = const <String>{},
     List<String> initialRecentTrackIds = const <String>[],
@@ -28,6 +30,9 @@ class MusicAppController extends ChangeNotifier {
        _sessionStore = sessionStore,
        _player = enableAudio ? (player ?? AudioPlayer()) : null {
     _tracks = List<Track>.from(initialTracks);
+    for (final entry in initialPlaybackHistory) {
+      _playbackHistoryByTrackId[entry.trackId] = entry;
+    }
     _likedTrackIds.addAll(initialLikedTrackIds);
     _savedCollectionIds.addAll(initialSavedCollectionIds);
     _recentTrackIds.addAll(initialRecentTrackIds);
@@ -44,6 +49,8 @@ class MusicAppController extends ChangeNotifier {
   final AudioPlayer? _player;
   final Set<String> _likedTrackIds = <String>{};
   final Set<String> _savedCollectionIds = <String>{};
+  final Map<String, PlaybackHistoryEntry> _playbackHistoryByTrackId =
+      <String, PlaybackHistoryEntry>{};
   final List<String> _recentTrackIds = <String>[];
   final List<String> _recentSearches = <String>[];
   final List<StreamSubscription<dynamic>> _subscriptions =
@@ -87,6 +94,12 @@ class MusicAppController extends ChangeNotifier {
   int get collectionCount => importedCollections.length;
   int get likedTracksCount => _likedTrackIds.length;
   int get savedCollectionCount => savedCollections.length;
+  bool get hasPlaybackHistory => _playbackHistoryByTrackId.isNotEmpty;
+  int get playbackHistoryCount => playbackHistoryTracks.length;
+  int get totalPlayCount => _playbackHistoryByTrackId.values.fold(
+    0,
+    (total, entry) => total + entry.playCount,
+  );
   int get artistCount =>
       _tracks.map((track) => track.artist.toLowerCase()).toSet().length;
   int get albumCount =>
@@ -109,7 +122,38 @@ class MusicAppController extends ChangeNotifier {
     return sorted.take(8).toList(growable: false);
   }
 
+  List<Track> get playbackHistoryTracks {
+    final tracksById = {for (final track in _tracks) track.id: track};
+    final entries = _playbackHistoryByTrackId.values.toList(growable: false)
+      ..sort((a, b) => b.lastPlayedAt.compareTo(a.lastPlayedAt));
+
+    return entries
+        .map((entry) => tracksById[entry.trackId])
+        .whereType<Track>()
+        .toList(growable: false);
+  }
+
+  PlaybackHistoryEntry? playbackHistoryEntryForTrack(String trackId) =>
+      _playbackHistoryByTrackId[trackId];
+
+  double playbackHistoryProgressForTrack(Track track) {
+    final entry = playbackHistoryEntryForTrack(track.id);
+    final duration = track.duration;
+    if (entry == null || duration == null || duration.inMilliseconds <= 0) {
+      return 0;
+    }
+
+    final progress =
+        entry.lastPosition.inMilliseconds / duration.inMilliseconds;
+    return progress.clamp(0.0, 1.0).toDouble();
+  }
+
   List<Track> get recentPlayedTracks {
+    final historyTracks = playbackHistoryTracks;
+    if (historyTracks.isNotEmpty) {
+      return historyTracks.take(20).toList(growable: false);
+    }
+
     final tracksById = {for (final track in _tracks) track.id: track};
     return _recentTrackIds
         .map((id) => tracksById[id])
@@ -495,6 +539,12 @@ class MusicAppController extends ChangeNotifier {
       _likedTrackIds
         ..clear()
         ..addAll(snapshot.likedTrackIds.where(trackIds.contains));
+      final playbackHistory = _restorePlaybackHistory(snapshot, trackIds);
+      _playbackHistoryByTrackId
+        ..clear()
+        ..addEntries(
+          playbackHistory.map((entry) => MapEntry(entry.trackId, entry)),
+        );
       _savedCollectionIds
         ..clear()
         ..addAll(snapshot.savedCollectionIds);
@@ -577,6 +627,20 @@ class MusicAppController extends ChangeNotifier {
     }
 
     _recentSearches.clear();
+    notifyListeners();
+    _persistSession();
+  }
+
+  void clearPlaybackHistory() {
+    if (_playbackHistoryByTrackId.isEmpty && _recentTrackIds.isEmpty) {
+      _statusMessage = 'Playback history is already clear.';
+      notifyListeners();
+      return;
+    }
+
+    _playbackHistoryByTrackId.clear();
+    _recentTrackIds.clear();
+    _statusMessage = 'Cleared saved playback history from ChiMusic.';
     notifyListeners();
     _persistSession();
   }
@@ -833,6 +897,7 @@ class MusicAppController extends ChangeNotifier {
   Future<void> clearLibrarySession() async {
     final hadAnyData =
         _tracks.isNotEmpty ||
+        _playbackHistoryByTrackId.isNotEmpty ||
         _likedTrackIds.isNotEmpty ||
         _savedCollectionIds.isNotEmpty ||
         _recentTrackIds.isNotEmpty ||
@@ -854,6 +919,7 @@ class MusicAppController extends ChangeNotifier {
     _searchQuery = '';
     _likedTrackIds.clear();
     _savedCollectionIds.clear();
+    _playbackHistoryByTrackId.clear();
     _recentTrackIds.clear();
     _recentSearches.clear();
     _isPlaying = false;
@@ -878,6 +944,7 @@ class MusicAppController extends ChangeNotifier {
 
     if (!_audioEnabled || _player == null) {
       _position = nextPosition;
+      _syncCurrentTrackHistoryPosition(nextPosition);
       notifyListeners();
       _persistSession();
       return;
@@ -886,6 +953,7 @@ class MusicAppController extends ChangeNotifier {
     final player = _player;
 
     _position = nextPosition;
+    _syncCurrentTrackHistoryPosition(nextPosition);
     notifyListeners();
     await player.seek(nextPosition);
     _persistSession();
@@ -930,6 +998,7 @@ class MusicAppController extends ChangeNotifier {
     if (_position.inSeconds > 5) {
       if (!_audioEnabled || _player == null) {
         _position = Duration.zero;
+        _syncCurrentTrackHistoryPosition(Duration.zero);
         notifyListeners();
         _persistSession();
         return;
@@ -1095,6 +1164,9 @@ class MusicAppController extends ChangeNotifier {
         .toList(growable: false);
     _likedTrackIds.removeWhere(removedTrackIds.contains);
     _recentTrackIds.removeWhere(removedTrackIds.contains);
+    _playbackHistoryByTrackId.removeWhere(
+      (trackId, _) => removedTrackIds.contains(trackId),
+    );
 
     if (_tracks.isEmpty || removedCurrentTrack) {
       _queue = <Track>[];
@@ -1336,23 +1408,29 @@ class MusicAppController extends ChangeNotifier {
     }
 
     if (changed) {
+      if (_currentTrack?.id == trackId) {
+        _syncCurrentTrackHistoryPosition(_position);
+      }
       notifyListeners();
       _persistSession();
     }
   }
 
   void _markTrackPlayed(Track track) {
-    _recentTrackIds.remove(track.id);
-    _recentTrackIds.insert(0, track.id);
-
-    if (_recentTrackIds.length > 20) {
-      _recentTrackIds.removeRange(20, _recentTrackIds.length);
-    }
+    _rememberRecentTrack(track.id);
+    final existingEntry = _playbackHistoryByTrackId[track.id];
+    _playbackHistoryByTrackId[track.id] = PlaybackHistoryEntry(
+      trackId: track.id,
+      lastPlayedAt: DateTime.now(),
+      lastPosition: Duration.zero,
+      playCount: (existingEntry?.playCount ?? 0) + 1,
+    );
 
     _persistSession();
   }
 
   Future<void> flushSession() async {
+    _syncCurrentTrackHistoryPosition(_position);
     await _persistSession();
   }
 
@@ -1364,6 +1442,7 @@ class MusicAppController extends ChangeNotifier {
 
     final snapshot = MusicSessionSnapshot(
       tracks: List<Track>.from(_tracks),
+      playbackHistory: _playbackHistoryByTrackId.values.toList(growable: false),
       likedTrackIds: Set<String>.from(_likedTrackIds),
       savedCollectionIds: Set<String>.from(_savedCollectionIds),
       recentTrackIds: List<String>.from(_recentTrackIds),
@@ -1387,6 +1466,40 @@ class MusicAppController extends ChangeNotifier {
     });
 
     return _persistOperation;
+  }
+
+  List<PlaybackHistoryEntry> _restorePlaybackHistory(
+    MusicSessionSnapshot snapshot,
+    Set<String> validTrackIds,
+  ) {
+    final restoredHistory = snapshot.playbackHistory
+        .where(
+          (entry) =>
+              entry.trackId.isNotEmpty && validTrackIds.contains(entry.trackId),
+        )
+        .toList(growable: false);
+
+    if (restoredHistory.isNotEmpty) {
+      return restoredHistory;
+    }
+
+    final migratedHistory = <PlaybackHistoryEntry>[];
+    final now = DateTime.now();
+    for (var index = 0; index < snapshot.recentTrackIds.length; index++) {
+      final trackId = snapshot.recentTrackIds[index];
+      if (!validTrackIds.contains(trackId)) {
+        continue;
+      }
+
+      migratedHistory.add(
+        PlaybackHistoryEntry(
+          trackId: trackId,
+          lastPlayedAt: now.subtract(Duration(minutes: index + 1)),
+        ),
+      );
+    }
+
+    return migratedHistory;
   }
 
   Future<void> _restorePlaybackSnapshot(MusicSessionSnapshot snapshot) async {
@@ -1421,6 +1534,7 @@ class MusicAppController extends ChangeNotifier {
     _isPlaying = false;
     _isPreparingPlayback = _audioEnabled && _player != null;
     _lastPersistedPositionBucket = initialPosition.inSeconds ~/ 5;
+    _syncCurrentTrackHistoryPosition(initialPosition);
 
     if (!_audioEnabled || _player == null) {
       _isPreparingPlayback = false;
@@ -1497,6 +1611,30 @@ class MusicAppController extends ChangeNotifier {
     return position;
   }
 
+  void _rememberRecentTrack(String trackId) {
+    _recentTrackIds.remove(trackId);
+    _recentTrackIds.insert(0, trackId);
+
+    if (_recentTrackIds.length > 20) {
+      _recentTrackIds.removeRange(20, _recentTrackIds.length);
+    }
+  }
+
+  void _syncCurrentTrackHistoryPosition(Duration position) {
+    final currentTrack = _currentTrack;
+    if (currentTrack == null) {
+      return;
+    }
+
+    final existingEntry = _playbackHistoryByTrackId[currentTrack.id];
+    _playbackHistoryByTrackId[currentTrack.id] = PlaybackHistoryEntry(
+      trackId: currentTrack.id,
+      lastPlayedAt: existingEntry?.lastPlayedAt ?? DateTime.now(),
+      lastPosition: _clampedPositionForTrack(currentTrack, position),
+      playCount: existingEntry?.playCount ?? 1,
+    );
+  }
+
   void _persistProgressIfNeeded() {
     final currentTrack = _currentTrack;
     if (currentTrack == null) {
@@ -1509,6 +1647,7 @@ class MusicAppController extends ChangeNotifier {
     }
 
     _lastPersistedPositionBucket = bucket;
+    _syncCurrentTrackHistoryPosition(_position);
     _persistSession();
   }
 

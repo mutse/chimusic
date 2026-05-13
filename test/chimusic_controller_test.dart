@@ -281,6 +281,70 @@ void main() {
       },
     );
 
+    test('playback history stores resume position and play counts', () async {
+      final track = _track(
+        folderPath: '/music/history',
+        title: 'Replay',
+        artist: 'North Coast',
+        album: 'Sea Glass',
+        duration: const Duration(minutes: 4),
+        importedAt: DateTime(2026, 5, 6, 16),
+      );
+      final controller = MusicAppController(
+        enableAudio: false,
+        initialTracks: [track],
+      );
+      addTearDown(controller.dispose);
+
+      await controller.playImportedTracks();
+      await controller.seekToFraction(0.25);
+
+      final entry = controller.playbackHistoryEntryForTrack(track.id);
+      expect(controller.playbackHistoryTracks.single.id, track.id);
+      expect(entry, isNotNull);
+      expect(entry!.playCount, 1);
+      expect(entry.lastPosition, const Duration(minutes: 1));
+    });
+
+    test('restoreSession rehydrates saved playback history details', () async {
+      final track = _track(
+        folderPath: '/music/history',
+        title: 'Replay',
+        artist: 'North Coast',
+        album: 'Sea Glass',
+        duration: const Duration(minutes: 4),
+        importedAt: DateTime(2026, 5, 6, 16),
+      );
+      final entry = PlaybackHistoryEntry(
+        trackId: track.id,
+        lastPlayedAt: DateTime(2026, 5, 7, 10),
+        lastPosition: const Duration(minutes: 2, seconds: 5),
+        playCount: 3,
+      );
+      final store = _FakeSessionStore(
+        snapshot: MusicSessionSnapshot(
+          tracks: [track],
+          playbackHistory: [entry],
+          recentTrackIds: [track.id],
+        ),
+      );
+      final controller = MusicAppController(
+        enableAudio: false,
+        sessionStore: store,
+      );
+      addTearDown(controller.dispose);
+
+      await controller.restoreSession();
+
+      final restoredEntry = controller.playbackHistoryEntryForTrack(track.id);
+      expect(controller.playbackHistoryCount, 1);
+      expect(controller.totalPlayCount, 3);
+      expect(controller.recentPlayedTracks.single.id, track.id);
+      expect(restoredEntry, isNotNull);
+      expect(restoredEntry!.lastPosition, entry.lastPosition);
+      expect(restoredEntry.playCount, entry.playCount);
+    });
+
     test(
       'state changes persist through the configured session store',
       () async {
@@ -345,6 +409,11 @@ void main() {
         expect(snapshot.currentTrackId, track.id);
         expect(snapshot.currentCollectionId, 'all_tracks');
         expect(snapshot.positionMs, 120000);
+        expect(snapshot.playbackHistory.single.trackId, track.id);
+        expect(
+          snapshot.playbackHistory.single.lastPosition,
+          const Duration(minutes: 2),
+        );
       },
     );
 
@@ -489,6 +558,41 @@ void main() {
           controller.statusMessage,
           'Cleared imported items from ChiMusic. Original audio files were not deleted.',
         );
+      },
+    );
+
+    test(
+      'clearPlaybackHistory removes saved history but keeps the library',
+      () {
+        final track = _track(
+          folderPath: '/music/history',
+          title: 'Replay',
+          artist: 'North Coast',
+          album: 'Sea Glass',
+          duration: const Duration(minutes: 4),
+          importedAt: DateTime(2026, 5, 6, 16),
+        );
+        final controller = MusicAppController(
+          enableAudio: false,
+          initialTracks: [track],
+          initialPlaybackHistory: [
+            PlaybackHistoryEntry(
+              trackId: track.id,
+              lastPlayedAt: DateTime(2026, 5, 7, 10),
+              lastPosition: const Duration(minutes: 1),
+              playCount: 2,
+            ),
+          ],
+          initialRecentTrackIds: [track.id],
+        );
+        addTearDown(controller.dispose);
+
+        controller.clearPlaybackHistory();
+
+        expect(controller.importedTrackCount, 1);
+        expect(controller.playbackHistoryCount, 0);
+        expect(controller.totalPlayCount, 0);
+        expect(controller.recentPlayedTracks, isEmpty);
       },
     );
   });

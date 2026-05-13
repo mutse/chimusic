@@ -138,6 +138,34 @@ class MusicCollection {
   );
 }
 
+class PlaybackHistoryEntry {
+  const PlaybackHistoryEntry({
+    required this.trackId,
+    required this.lastPlayedAt,
+    this.lastPosition = Duration.zero,
+    this.playCount = 1,
+  });
+
+  final String trackId;
+  final DateTime lastPlayedAt;
+  final Duration lastPosition;
+  final int playCount;
+
+  PlaybackHistoryEntry copyWith({
+    String? trackId,
+    DateTime? lastPlayedAt,
+    Duration? lastPosition,
+    int? playCount,
+  }) {
+    return PlaybackHistoryEntry(
+      trackId: trackId ?? this.trackId,
+      lastPlayedAt: lastPlayedAt ?? this.lastPlayedAt,
+      lastPosition: lastPosition ?? this.lastPosition,
+      playCount: playCount ?? this.playCount,
+    );
+  }
+}
+
 String formatDuration(Duration? duration, {String placeholder = '--:--'}) {
   if (duration == null) {
     return placeholder;
@@ -163,4 +191,54 @@ String formatRuntime(Duration duration) {
   }
 
   return '${duration.inMinutes}m';
+}
+
+String formatRelativePlayTime(DateTime value, {DateTime? now}) {
+  final currentTime = now ?? DateTime.now();
+  final difference = currentTime.difference(value);
+
+  if (difference.inMinutes <= 0) {
+    return 'Just now';
+  }
+
+  if (difference.inMinutes < 60) {
+    return '${difference.inMinutes}m ago';
+  }
+
+  if (difference.inHours < 24 && currentTime.day == value.day) {
+    return '${difference.inHours}h ago';
+  }
+
+  final startOfToday = DateTime(
+    currentTime.year,
+    currentTime.month,
+    currentTime.day,
+  );
+  final startOfValueDay = DateTime(value.year, value.month, value.day);
+  final dayDifference = startOfToday.difference(startOfValueDay).inDays;
+
+  if (dayDifference == 1) {
+    return 'Yesterday';
+  }
+
+  if (dayDifference < 7) {
+    return '${dayDifference}d ago';
+  }
+
+  const monthLabels = <String>[
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+
+  return '${monthLabels[value.month - 1]} ${value.day}';
 }

@@ -269,6 +269,7 @@ class _NowPlayingHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = ChiMusicScope.watch(context);
+    final historyEntry = controller.playbackHistoryEntryForTrack(track.id);
     final queueIndex = controller.queue.indexWhere(
       (item) => item.id == track.id,
     );
@@ -295,6 +296,11 @@ class _NowPlayingHero extends StatelessWidget {
                 leading: const Icon(Icons.audio_file_rounded, size: 16),
               ),
               GlassPill(label: queueLabel),
+              if (historyEntry != null)
+                GlassPill(
+                  label:
+                      '${historyEntry.playCount} play${historyEntry.playCount == 1 ? '' : 's'}',
+                ),
               if (collection != null) GlassPill(label: collection!.kind.label),
             ],
           ),
@@ -376,6 +382,7 @@ class _PlaybackSideRail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = ChiMusicScope.watch(context);
+    final historyEntry = controller.playbackHistoryEntryForTrack(track.id);
 
     return Column(
       children: [
@@ -404,6 +411,24 @@ class _PlaybackSideRail extends StatelessWidget {
                 label: 'Liked',
                 value: controller.isTrackLiked(track.id) ? 'Saved' : 'Not yet',
               ),
+              if (historyEntry != null) ...[
+                const SizedBox(height: 12),
+                _RailMetric(
+                  label: 'Last Played',
+                  value: formatRelativePlayTime(historyEntry.lastPlayedAt),
+                ),
+                const SizedBox(height: 12),
+                _RailMetric(
+                  label: 'Play Count',
+                  value:
+                      '${historyEntry.playCount} play${historyEntry.playCount == 1 ? '' : 's'}',
+                ),
+                const SizedBox(height: 12),
+                _RailMetric(
+                  label: 'Resume From',
+                  value: formatDuration(historyEntry.lastPosition),
+                ),
+              ],
             ],
           ),
         ),

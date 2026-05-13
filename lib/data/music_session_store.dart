@@ -10,6 +10,7 @@ const String _sessionStorageKey = 'chimusic.session.v1';
 class MusicSessionSnapshot {
   const MusicSessionSnapshot({
     this.tracks = const <Track>[],
+    this.playbackHistory = const <PlaybackHistoryEntry>[],
     this.likedTrackIds = const <String>{},
     this.savedCollectionIds = const <String>{},
     this.recentTrackIds = const <String>[],
@@ -25,6 +26,7 @@ class MusicSessionSnapshot {
   });
 
   final List<Track> tracks;
+  final List<PlaybackHistoryEntry> playbackHistory;
   final Set<String> likedTrackIds;
   final Set<String> savedCollectionIds;
   final List<String> recentTrackIds;
@@ -41,6 +43,9 @@ class MusicSessionSnapshot {
   Map<String, Object?> toJson() {
     return <String, Object?>{
       'tracks': tracks.map(_trackToJson).toList(growable: false),
+      'playbackHistory': playbackHistory
+          .map(_playbackHistoryEntryToJson)
+          .toList(growable: false),
       'likedTrackIds': likedTrackIds.toList(growable: false),
       'savedCollectionIds': savedCollectionIds.toList(growable: false),
       'recentTrackIds': recentTrackIds,
@@ -61,9 +66,15 @@ class MusicSessionSnapshot {
         .whereType<Map<String, dynamic>>()
         .map(_trackFromJson)
         .toList(growable: false);
+    final playbackHistory =
+        (json['playbackHistory'] as List<dynamic>? ?? const <dynamic>[])
+            .whereType<Map<String, dynamic>>()
+            .map(_playbackHistoryEntryFromJson)
+            .toList(growable: false);
 
     return MusicSessionSnapshot(
       tracks: tracks,
+      playbackHistory: playbackHistory,
       likedTrackIds: _stringSet(json['likedTrackIds']),
       savedCollectionIds: _stringSet(json['savedCollectionIds']),
       recentTrackIds: _stringList(json['recentTrackIds']),
@@ -136,6 +147,32 @@ class MusicSessionSnapshot {
         _ => null,
       },
       fileExtension: json['fileExtension'] as String?,
+    );
+  }
+
+  static Map<String, Object?> _playbackHistoryEntryToJson(
+    PlaybackHistoryEntry entry,
+  ) {
+    return <String, Object?>{
+      'trackId': entry.trackId,
+      'lastPlayedAt': entry.lastPlayedAt.millisecondsSinceEpoch,
+      'lastPositionMs': entry.lastPosition.inMilliseconds,
+      'playCount': entry.playCount,
+    };
+  }
+
+  static PlaybackHistoryEntry _playbackHistoryEntryFromJson(
+    Map<String, dynamic> json,
+  ) {
+    return PlaybackHistoryEntry(
+      trackId: (json['trackId'] as String?) ?? '',
+      lastPlayedAt: DateTime.fromMillisecondsSinceEpoch(
+        (json['lastPlayedAt'] as int?) ?? 0,
+      ),
+      lastPosition: Duration(
+        milliseconds: (json['lastPositionMs'] as int?) ?? 0,
+      ),
+      playCount: (json['playCount'] as int?) ?? 1,
     );
   }
 
