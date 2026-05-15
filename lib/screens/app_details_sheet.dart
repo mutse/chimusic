@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../app/chimusic_theme.dart';
 import '../data/local_audio_importer.dart';
+import '../models/music_models.dart';
 import '../state/chimusic_scope.dart';
 import '../widgets/glass.dart';
 
@@ -21,6 +22,8 @@ class AppDetailsSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = ChiMusicScope.watch(context);
+    final user = controller.userProfile;
+    final syncState = controller.syncState;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
@@ -43,12 +46,12 @@ class AppDetailsSheet extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'App Details',
+                          'Profile & Settings',
                           style: Theme.of(context).textTheme.headlineSmall,
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Privacy, supported formats, and session controls for ChiMusic.',
+                          'Manage sign-in, Pro access, cloud sync, privacy, and local session controls.',
                           style: Theme.of(context).textTheme.bodyMedium
                               ?.copyWith(
                                 color: Colors.white.withValues(alpha: 0.64),
@@ -64,21 +67,131 @@ class AppDetailsSheet extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 22),
-              const _DetailsSection(
-                title: 'Privacy & Local Files',
-                body:
-                    'ChiMusic builds its library from filenames and folders on this device. Imported audio stays local to the device, and removing items from ChiMusic never deletes the original files from storage.',
+              GlassPanel(
+                padding: const EdgeInsets.all(18),
+                borderRadius: BorderRadius.circular(30),
+                tintColors: [
+                  LiquidPalette.deepCyan.withValues(alpha: 0.88),
+                  LiquidPalette.surfaceRaised.withValues(alpha: 0.96),
+                ],
+                withShadow: false,
+                child: Row(
+                  children: [
+                    Container(
+                      width: 52,
+                      height: 52,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: LinearGradient(
+                          colors: [
+                            LiquidPalette.aqua.withValues(alpha: 0.92),
+                            LiquidPalette.mint.withValues(alpha: 0.70),
+                          ],
+                        ),
+                      ),
+                      child: const Icon(
+                        Icons.person_rounded,
+                        color: LiquidPalette.ink,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            user?.name ?? 'Local-only listening',
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            user?.email ??
+                                'Sign in to unlock cloud sync, AI continuity, and Pro upgrades.',
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(
+                                  color: Colors.white.withValues(alpha: 0.68),
+                                ),
+                          ),
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 10,
+                            runSpacing: 10,
+                            children: [
+                              GlassPill(
+                                label: controller.membershipTier.label,
+                                selected: controller.hasPro,
+                              ),
+                              GlassPill(label: syncState.phase.name),
+                              if (syncState.lastSyncedAt != null)
+                                GlassPill(
+                                  label:
+                                      'Synced ${formatRelativePlayTime(syncState.lastSyncedAt!)}',
+                                ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(height: 14),
-              const _DetailsSection(
-                title: 'Current Product Scope',
-                body:
-                    'This version focuses on local playback, personal library management, and on-device search. No account sign-in or cloud sync is required in the current build.',
-              ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 18),
               Text(
-                'Supported Formats',
+                'Membership & Sync',
                 style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  _ActionTile(
+                    icon: user == null
+                        ? Icons.login_rounded
+                        : Icons.logout_rounded,
+                    label: user == null ? 'Sign In' : 'Sign Out',
+                    onTap: () async {
+                      if (user == null) {
+                        await controller.signIn();
+                      } else {
+                        await controller.signOut();
+                      }
+                    },
+                  ),
+                  _ActionTile(
+                    icon: controller.hasPro
+                        ? Icons.workspace_premium_rounded
+                        : Icons.auto_awesome_rounded,
+                    label: controller.hasPro ? 'Pro Active' : 'Upgrade to Pro',
+                    onTap: controller.hasPro
+                        ? null
+                        : () async {
+                            await controller.upgradeToPro();
+                          },
+                    accent: !controller.hasPro,
+                  ),
+                  _ActionTile(
+                    icon: Icons.sync_rounded,
+                    label: syncState.isBusy ? 'Syncing…' : 'Sync Library',
+                    onTap: syncState.isBusy
+                        ? null
+                        : () async {
+                            await controller.syncLibraryNow();
+                          },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              const _DetailsSection(
+                title: 'AI & Cloud Boundaries',
+                body:
+                    'This prototype keeps local playback available without any account. Sign-in unlocks cloud snapshot sync, metadata enhancement, and AI-driven organization. Original audio files are not deleted when you clear the in-app library.',
+              ),
+              const SizedBox(height: 14),
+              const _DetailsSection(
+                title: 'Supported Formats',
+                body:
+                    'ChiMusic scans common local music formats first, then enriches what it can with cover art, lyrics availability, and lightweight metadata.',
               ),
               const SizedBox(height: 10),
               Wrap(
@@ -96,7 +209,7 @@ class AppDetailsSheet extends StatelessWidget {
               ),
               const SizedBox(height: 10),
               Text(
-                'Use these controls to manage only the in-app session. They do not alter the original files on disk.',
+                'These actions manage only the app session and synced metadata. They never delete the original files on disk.',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: Colors.white.withValues(alpha: 0.64),
                 ),
@@ -106,69 +219,28 @@ class AppDetailsSheet extends StatelessWidget {
                 spacing: 12,
                 runSpacing: 12,
                 children: [
-                  GlassPanel(
+                  _ActionTile(
+                    icon: Icons.history_rounded,
+                    label: controller.hasPlaybackHistory
+                        ? 'Clear Playback History'
+                        : 'History Already Clear',
                     onTap: controller.hasPlaybackHistory
                         ? controller.clearPlaybackHistory
                         : null,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 14,
-                    ),
-                    borderRadius: BorderRadius.circular(24),
-                    tintColors: [
-                      LiquidPalette.surfaceSoft.withValues(alpha: 0.78),
-                      LiquidPalette.surface.withValues(alpha: 0.92),
-                    ],
-                    withShadow: false,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.history_rounded,
-                          color: Colors.white.withValues(alpha: 0.82),
-                        ),
-                        const SizedBox(width: 10),
-                        Text(
-                          controller.hasPlaybackHistory
-                              ? 'Clear Playback History'
-                              : 'Playback History Already Clear',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                      ],
-                    ),
                   ),
-                  GlassPanel(
+                  _ActionTile(
+                    icon: Icons.manage_search_rounded,
+                    label: controller.recentSearches.isEmpty
+                        ? 'Searches Already Clear'
+                        : 'Clear Recent Searches',
                     onTap: controller.recentSearches.isEmpty
                         ? null
                         : controller.clearRecentSearches,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 14,
-                    ),
-                    borderRadius: BorderRadius.circular(24),
-                    tintColors: [
-                      LiquidPalette.surfaceSoft.withValues(alpha: 0.78),
-                      LiquidPalette.surface.withValues(alpha: 0.92),
-                    ],
-                    withShadow: false,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.manage_search_rounded,
-                          color: Colors.white.withValues(alpha: 0.82),
-                        ),
-                        const SizedBox(width: 10),
-                        Text(
-                          controller.recentSearches.isEmpty
-                              ? 'Recent Searches Already Clear'
-                              : 'Clear Recent Searches',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                      ],
-                    ),
                   ),
-                  GlassPanel(
+                  _ActionTile(
+                    icon: Icons.delete_sweep_rounded,
+                    label: 'Clear Imported Library',
+                    accent: true,
                     onTap: () async {
                       final shouldClear = await _confirmLibraryReset(context);
                       if (shouldClear != true) {
@@ -180,25 +252,6 @@ class AppDetailsSheet extends StatelessWidget {
                         Navigator.of(context).pop();
                       }
                     },
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 14,
-                    ),
-                    borderRadius: BorderRadius.circular(24),
-                    tintColors: const [Color(0xFF3B1919), Color(0xFF6A1F1F)],
-                    borderColor: const Color(0x66F87171),
-                    withShadow: false,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.delete_sweep_rounded),
-                        const SizedBox(width: 10),
-                        Text(
-                          'Clear Imported Library',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                      ],
-                    ),
                   ),
                 ],
               ),
@@ -217,7 +270,7 @@ class AppDetailsSheet extends StatelessWidget {
           backgroundColor: LiquidPalette.surfaceRaised,
           title: const Text('Clear Imported Library?'),
           content: const Text(
-            'This removes imported tracks, likes, saved collections, and recent searches from ChiMusic. Original audio files on your device will not be deleted.',
+            'This removes imported tracks, likes, saved collections, AI suggestions, and recent searches from ChiMusic. Original audio files on your device will not be deleted.',
           ),
           actions: [
             TextButton(
@@ -231,6 +284,52 @@ class AppDetailsSheet extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+}
+
+class _ActionTile extends StatelessWidget {
+  const _ActionTile({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.accent = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+  final bool accent;
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassPanel(
+      onTap: onTap,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      borderRadius: BorderRadius.circular(24),
+      tintColors: accent
+          ? const [Color(0xFF123340), Color(0xFF1C6E8C)]
+          : [
+              LiquidPalette.surfaceSoft.withValues(alpha: 0.78),
+              LiquidPalette.surface.withValues(alpha: 0.92),
+            ],
+      borderColor: accent
+          ? LiquidPalette.aqua.withValues(alpha: 0.18)
+          : Colors.white.withValues(alpha: 0.06),
+      withShadow: false,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            color: accent
+                ? LiquidPalette.mint
+                : Colors.white.withValues(alpha: 0.82),
+          ),
+          const SizedBox(width: 10),
+          Text(label, style: Theme.of(context).textTheme.titleMedium),
+        ],
+      ),
     );
   }
 }

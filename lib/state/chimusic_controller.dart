@@ -9,12 +9,22 @@ import 'package:just_audio/just_audio.dart';
 import '../data/local_audio_importer.dart';
 import '../data/music_session_store.dart';
 import '../models/music_models.dart';
+import '../services/auth_service.dart';
+import '../services/cloud_sync_service.dart';
+import '../services/metadata_enrichment_service.dart';
+import '../services/recommendation_service.dart';
+import '../services/subscription_service.dart';
 
 class MusicAppController extends ChangeNotifier {
   MusicAppController({
     AudioPlayer? player,
     bool enableAudio = true,
     MusicSessionStore? sessionStore,
+    AuthService? authService,
+    MetadataEnrichmentService? metadataEnrichmentService,
+    RecommendationService? recommendationService,
+    CloudSyncService? cloudSyncService,
+    SubscriptionService? subscriptionService,
     List<Track> initialTracks = const <Track>[],
     List<PlaybackHistoryEntry> initialPlaybackHistory =
         const <PlaybackHistoryEntry>[],
@@ -26,8 +36,18 @@ class MusicAppController extends ChangeNotifier {
     LibraryFilter initialLibraryFilter = LibraryFilter.all,
     LibrarySort initialLibrarySort = LibrarySort.recent,
     String initialSearchQuery = '',
+    SearchMode initialSearchMode = SearchMode.standard,
+    UserProfile? initialUserProfile,
+    int initialAiSearchTrialsRemaining = 2,
   }) : _audioEnabled = enableAudio,
        _sessionStore = sessionStore,
+       _authService = authService ?? MockAuthService(),
+       _metadataEnrichmentService =
+           metadataEnrichmentService ?? MockMetadataEnrichmentService(),
+       _recommendationService =
+           recommendationService ?? MockRecommendationService(),
+       _cloudSyncService = cloudSyncService ?? MockCloudSyncService(),
+       _subscriptionService = subscriptionService ?? MockSubscriptionService(),
        _player = enableAudio ? (player ?? AudioPlayer()) : null {
     _tracks = List<Track>.from(initialTracks);
     for (final entry in initialPlaybackHistory) {
@@ -41,11 +61,21 @@ class MusicAppController extends ChangeNotifier {
     _libraryFilter = initialLibraryFilter;
     _librarySort = initialLibrarySort;
     _searchQuery = initialSearchQuery;
+    _searchMode = initialSearchMode;
+    _userProfile = initialUserProfile;
+    _aiSearchTrialsRemaining = initialAiSearchTrialsRemaining;
+    _syncState = _buildDefaultSyncState();
+    _primeLyricsStates();
     _bindAudioStreams();
   }
 
   final bool _audioEnabled;
   final MusicSessionStore? _sessionStore;
+  final AuthService _authService;
+  final MetadataEnrichmentService _metadataEnrichmentService;
+  final RecommendationService _recommendationService;
+  final CloudSyncService _cloudSyncService;
+  final SubscriptionService _subscriptionService;
   final AudioPlayer? _player;
   final Set<String> _likedTrackIds = <String>{};
   final Set<String> _savedCollectionIds = <String>{};
@@ -55,8 +85,11 @@ class MusicAppController extends ChangeNotifier {
   final List<String> _recentSearches = <String>[];
   final List<StreamSubscription<dynamic>> _subscriptions =
       <StreamSubscription<dynamic>>[];
+  final Map<String, LyricsState> _lyricsByTrackId = <String, LyricsState>{};
+
   Future<void> _persistOperation = Future<void>.value();
   bool _hasRestoredSession = false;
+  bool _isDisposed = false;
   int? _lastPersistedPositionBucket;
 
   List<Track> _tracks = <Track>[];
@@ -68,20 +101,42 @@ class MusicAppController extends ChangeNotifier {
   LibraryFilter _libraryFilter = LibraryFilter.all;
   LibrarySort _librarySort = LibrarySort.recent;
   String _searchQuery = '';
+  SearchMode _searchMode = SearchMode.standard;
   bool _isPlaying = false;
   bool _isImporting = false;
   bool _isPreparingPlayback = false;
+  bool _isEnhancingLibrary = false;
+  bool _isSigningIn = false;
+  bool _isRunningAiSearch = false;
   String? _statusMessage;
+  String? _aiSearchSummary;
+  UserProfile? _userProfile;
+  SyncState _syncState = const SyncState();
+  int _aiSearchTrialsRemaining = 2;
+  bool _hasUnlockedAiUpsell = false;
+  List<Track> _aiSearchResults = <Track>[];
+  List<SmartPlaylist> _smartPlaylists = <SmartPlaylist>[];
+  List<RecommendationCard> _recommendationCards = <RecommendationCard>[];
 
   MusicTab get selectedTab => _selectedTab;
   LibraryFilter get libraryFilter => _libraryFilter;
   LibrarySort get librarySort => _librarySort;
   String get searchQuery => _searchQuery;
+  SearchMode get searchMode => _searchMode;
   bool get isPlaying => _isPlaying;
   bool get isImporting => _isImporting;
   bool get isPreparingPlayback => _isPreparingPlayback;
+  bool get isEnhancingLibrary => _isEnhancingLibrary;
+  bool get isSigningIn => _isSigningIn;
+  bool get isRunningAiSearch => _isRunningAiSearch;
   bool get hasMusic => _tracks.isNotEmpty;
   bool get hasCurrentTrack => _currentTrack != null;
+  bool get isSignedIn => _userProfile != null;
+  bool get hasPro =>
+      (_userProfile?.membershipTier ?? MembershipTier.free) ==
+      MembershipTier.pro;
+  MembershipTier get membershipTier =>
+      _userProfile?.membershipTier ?? MembershipTier.free;
   bool get supportsDirectoryImport =>
       !kIsWeb && (Platform.isAndroid || Platform.isMacOS);
   Track? get currentTrack => _currentTrack;
@@ -89,6 +144,9 @@ class MusicAppController extends ChangeNotifier {
   Duration get position => _position;
   List<Track> get queue => List<Track>.unmodifiable(_queue);
   String? get statusMessage => _statusMessage;
+  String? get aiSearchSummary => _aiSearchSummary;
+  UserProfile? get userProfile => _userProfile;
+  SyncState get syncState => _syncState;
   List<String> get recentSearches => List<String>.unmodifiable(_recentSearches);
   int get importedTrackCount => _tracks.length;
   int get collectionCount => importedCollections.length;
@@ -100,10 +158,20 @@ class MusicAppController extends ChangeNotifier {
     0,
     (total, entry) => total + entry.playCount,
   );
-  int get artistCount =>
-      _tracks.map((track) => track.artist.toLowerCase()).toSet().length;
-  int get albumCount =>
-      _tracks.map((track) => track.album.toLowerCase()).toSet().length;
+  int get artistCount => artists.length;
+  int get albumCount => albums.length;
+  int get playlistCount => playlistCollections.length;
+  int get aiSearchTrialsRemaining => _aiSearchTrialsRemaining;
+  bool get canUseAiSearch => hasPro || _aiSearchTrialsRemaining > 0;
+  bool get shouldShowAiUpsell => _hasUnlockedAiUpsell && !hasPro;
+  List<Track> get aiSearchResults => List<Track>.unmodifiable(_aiSearchResults);
+  List<SmartPlaylist> get smartPlaylists =>
+      List<SmartPlaylist>.unmodifiable(_smartPlaylists);
+  List<MusicCollection> get smartPlaylistCollections => _smartPlaylists
+      .map((playlist) => playlist.toCollection())
+      .toList(growable: false);
+  List<RecommendationCard> get recommendationCards =>
+      List<RecommendationCard>.unmodifiable(_recommendationCards);
 
   double get playbackProgress {
     final duration = _currentTrack?.duration;
@@ -119,7 +187,61 @@ class MusicAppController extends ChangeNotifier {
   List<Track> get recentImportedTracks {
     final sorted = List<Track>.from(_tracks)
       ..sort((a, b) => b.importedAt.compareTo(a.importedAt));
-    return sorted.take(8).toList(growable: false);
+    return sorted.take(10).toList(growable: false);
+  }
+
+  List<Album> get albums {
+    final grouped = <String, List<Track>>{};
+    for (final track in _tracks) {
+      final key =
+          'album::${track.artist.toLowerCase()}::${track.album.toLowerCase()}';
+      grouped.putIfAbsent(key, () => <Track>[]).add(track);
+    }
+
+    return grouped.entries
+        .map((entry) {
+          final tracks = List<Track>.from(entry.value)
+            ..sort(
+              (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()),
+            );
+          final first = tracks.first;
+          return Album(
+            id: entry.key,
+            title: first.album,
+            artist: first.artist,
+            palette: first.palette,
+            tracks: tracks,
+            year: first.year,
+          );
+        })
+        .toList(growable: false)
+      ..sort(
+        (a, b) =>
+            b.tracks.first.importedAt.compareTo(a.tracks.first.importedAt),
+      );
+  }
+
+  List<Artist> get artists {
+    final grouped = <String, List<Track>>{};
+    for (final track in _tracks) {
+      final key = 'artist::${track.artist.toLowerCase()}';
+      grouped.putIfAbsent(key, () => <Track>[]).add(track);
+    }
+
+    return grouped.entries
+        .map((entry) {
+          final tracks = List<Track>.from(entry.value)
+            ..sort((a, b) => b.importedAt.compareTo(a.importedAt));
+          final first = tracks.first;
+          return Artist(
+            id: entry.key,
+            name: first.artist,
+            palette: first.palette,
+            tracks: tracks,
+          );
+        })
+        .toList(growable: false)
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
   }
 
   List<Track> get playbackHistoryTracks {
@@ -171,9 +293,12 @@ class MusicAppController extends ChangeNotifier {
     }
 
     return _currentCollection ??
+        (smartPlaylistCollections.isNotEmpty
+            ? smartPlaylistCollections.first
+            : null) ??
         (savedCollections.isNotEmpty ? savedCollections.first : null) ??
         (recentCollections.isNotEmpty ? recentCollections.first : null) ??
-        importedCollections.first;
+        allTracksCollection;
   }
 
   MusicCollection get allTracksCollection {
@@ -195,6 +320,7 @@ class MusicAppController extends ChangeNotifier {
             ]
           : tracks.first.palette,
       tracks: tracks,
+      reason: 'A full-library playback entry point.',
     );
   }
 
@@ -225,12 +351,42 @@ class MusicAppController extends ChangeNotifier {
                 kind: MusicCollectionKind.folder,
                 palette: firstTrack.palette,
                 tracks: tracks,
+                artworkUri: firstTrack.artworkUri,
               );
             })
             .toList(growable: false)
           ..sort((a, b) => b.latestImportAt.compareTo(a.latestImportAt));
 
     return collections;
+  }
+
+  List<MusicCollection> get albumCollections =>
+      albums.map((album) => album.toCollection()).toList(growable: false);
+
+  List<MusicCollection> get artistCollections =>
+      artists.map((artist) => artist.toCollection()).toList(growable: false);
+
+  List<MusicCollection> get playlistCollections {
+    final collections = <MusicCollection>[];
+    if (favoriteTracks.isNotEmpty) {
+      collections.add(_buildLikedSongsCollection(favoriteTracks));
+    }
+    collections.addAll(smartPlaylistCollections);
+    return collections;
+  }
+
+  List<MusicCollection> get allBrowsableCollections {
+    final collections = <MusicCollection>[
+      allTracksCollection,
+      ...playlistCollections,
+      ...albumCollections,
+      ...artistCollections,
+      ...importedCollections,
+    ];
+    final seen = <String>{};
+    return collections
+        .where((collection) => seen.add(collection.id))
+        .toList(growable: false);
   }
 
   List<MusicCollection> get recentCollections {
@@ -256,9 +412,16 @@ class MusicAppController extends ChangeNotifier {
     return importedCollections.take(4).toList(growable: false);
   }
 
-  List<MusicCollection> get savedCollections => importedCollections
-      .where((collection) => _savedCollectionIds.contains(collection.id))
-      .toList(growable: false);
+  List<MusicCollection> get savedCollections {
+    final collections = {
+      for (final collection in allBrowsableCollections)
+        collection.id: collection,
+    };
+    return _savedCollectionIds
+        .map((collectionId) => collections[collectionId])
+        .whereType<MusicCollection>()
+        .toList(growable: false);
+  }
 
   List<MusicCollection> get spotlightCollections {
     final collections = <MusicCollection>[];
@@ -272,16 +435,19 @@ class MusicAppController extends ChangeNotifier {
       }
     }
 
+    addMany(playlistCollections);
     addMany(savedCollections);
     addMany(recentCollections);
     addMany(importedCollections);
 
-    return collections.take(6).toList(growable: false);
+    return collections.take(8).toList(growable: false);
   }
 
   List<MusicCollection> get pinnedCollections {
     final source = savedCollections.isNotEmpty
         ? savedCollections
+        : playlistCollections.isNotEmpty
+        ? playlistCollections
         : recentCollections;
     if (source.isNotEmpty) {
       return source.take(4).toList(growable: false);
@@ -313,16 +479,30 @@ class MusicAppController extends ChangeNotifier {
     addMany(favoriteTracks);
     addMany(recentPlayedTracks);
     addMany(recentImportedTracks);
+    for (final card in _recommendationCards) {
+      addMany(card.tracks);
+    }
 
     return tracks.take(8).toList(growable: false);
+  }
+
+  List<Track> get rediscoveryTracks {
+    final favorites = favoriteTracks;
+    if (favorites.isNotEmpty) {
+      return favorites.take(6).toList(growable: false);
+    }
+    return recentImportedTracks.take(6).toList(growable: false);
   }
 
   List<Track> get filteredLibraryTracks {
     final tracks = switch (_libraryFilter) {
       LibraryFilter.all => importedTracks,
       LibraryFilter.tracks => importedTracks,
-      LibraryFilter.folders => const <Track>[],
       LibraryFilter.favorites => favoriteTracks,
+      LibraryFilter.albums ||
+      LibraryFilter.artists ||
+      LibraryFilter.playlists ||
+      LibraryFilter.folders => const <Track>[],
     };
 
     final sorted = List<Track>.from(tracks);
@@ -349,10 +529,15 @@ class MusicAppController extends ChangeNotifier {
 
   List<MusicCollection> get filteredLibraryCollections {
     final collections = switch (_libraryFilter) {
-      LibraryFilter.all => importedCollections,
-      LibraryFilter.tracks => const <MusicCollection>[],
+      LibraryFilter.all => allBrowsableCollections.where(
+        (collection) => collection.id != 'all_tracks',
+      ),
+      LibraryFilter.albums => albumCollections,
+      LibraryFilter.artists => artistCollections,
+      LibraryFilter.playlists => playlistCollections,
       LibraryFilter.folders => importedCollections,
       LibraryFilter.favorites => savedCollections,
+      LibraryFilter.tracks => const <MusicCollection>[],
     };
 
     final sorted = List<MusicCollection>.from(collections);
@@ -397,12 +582,18 @@ class MusicAppController extends ChangeNotifier {
     return matches.map((entry) => entry.track).toList(growable: false);
   }
 
+  List<Track> get activeSearchTracks => _searchMode == SearchMode.ai
+      ? (_normalizedQuery.isEmpty ? continueListeningTracks : _aiSearchResults)
+      : searchTrackResults;
+
   List<MusicCollection> get searchCollectionResults {
-    final collections = importedCollections;
+    final collections = allBrowsableCollections.where(
+      (collection) => collection.id != 'all_tracks',
+    );
     final query = _normalizedQuery;
 
     if (query.isEmpty) {
-      return collections.take(6).toList(growable: false);
+      return collections.take(8).toList(growable: false);
     }
 
     final matches =
@@ -428,6 +619,15 @@ class MusicAppController extends ChangeNotifier {
     return matches.map((entry) => entry.collection).toList(growable: false);
   }
 
+  List<MusicCollection> get aiSearchCollections {
+    final seen = <String>{};
+    return _aiSearchResults
+        .map(collectionForTrack)
+        .whereType<MusicCollection>()
+        .where((collection) => seen.add(collection.id))
+        .toList(growable: false);
+  }
+
   List<String> get trendingSearches {
     final suggestions = <String>[];
     final seen = <String>{};
@@ -450,13 +650,20 @@ class MusicAppController extends ChangeNotifier {
     for (final track in recentPlayedTracks.take(4)) {
       add(track.title);
       add(track.artist);
+      if (track.genre case final genre?) {
+        add(genre);
+      }
     }
 
-    for (final collection in importedCollections.take(4)) {
+    for (final collection in playlistCollections.take(3)) {
       add(collection.title);
     }
 
-    return suggestions.take(8).toList(growable: false);
+    for (final collection in importedCollections.take(3)) {
+      add(collection.title);
+    }
+
+    return suggestions.take(10).toList(growable: false);
   }
 
   List<String> get browseSuggestions {
@@ -474,12 +681,15 @@ class MusicAppController extends ChangeNotifier {
       }
     }
 
-    for (final track in recentImportedTracks.take(4)) {
+    for (final track in recentImportedTracks.take(5)) {
       add(track.artist);
       add(track.album);
+      if (track.genre case final genre?) {
+        add(genre);
+      }
     }
 
-    for (final collection in importedCollections.take(4)) {
+    for (final collection in smartPlaylistCollections.take(3)) {
       add(collection.title);
     }
 
@@ -487,12 +697,12 @@ class MusicAppController extends ChangeNotifier {
       if (track.fileExtension case final extension?) {
         add(extension.toUpperCase());
       }
-      if (suggestions.length >= 8) {
+      if (suggestions.length >= 10) {
         break;
       }
     }
 
-    return suggestions.take(8).toList(growable: false);
+    return suggestions.take(10).toList(growable: false);
   }
 
   List<Track> get upNext {
@@ -505,20 +715,80 @@ class MusicAppController extends ChangeNotifier {
       (track) => track.id == currentTrack.id,
     );
     if (currentIndex < 0) {
-      return _queue.take(3).toList(growable: false);
+      return _queue.take(6).toList(growable: false);
     }
 
     final reordered = <Track>[
       ..._queue.skip(currentIndex + 1),
       ..._queue.take(currentIndex),
     ];
-    return reordered.take(3).toList(growable: false);
+    return reordered.take(6).toList(growable: false);
   }
 
   bool isCollectionSaved(String collectionId) =>
       _savedCollectionIds.contains(collectionId);
 
   bool isTrackLiked(String trackId) => _likedTrackIds.contains(trackId);
+
+  LyricsState lyricsStateForTrack(Track track) {
+    return _lyricsByTrackId[track.id] ??
+        LyricsState(
+          status: track.lyricsAvailability == LyricsAvailability.available
+              ? LyricsStatus.idle
+              : LyricsStatus.unavailable,
+          title: track.lyricsAvailability == LyricsAvailability.available
+              ? 'Lyrics ready to load'
+              : 'No synced lyrics yet',
+          source: 'ChiMusic Metadata',
+        );
+  }
+
+  List<Track> similarTracksFor(Track track) {
+    final genre = (track.genre ?? '').toLowerCase();
+    final matches = _tracks
+        .where((candidate) {
+          if (candidate.id == track.id) {
+            return false;
+          }
+          if (candidate.artist.toLowerCase() == track.artist.toLowerCase()) {
+            return true;
+          }
+          return genre.isNotEmpty &&
+              (candidate.genre ?? '').toLowerCase() == genre;
+        })
+        .toList(growable: false);
+
+    if (matches.isNotEmpty) {
+      return matches.take(6).toList(growable: false);
+    }
+
+    return recentImportedTracks
+        .where((candidate) => candidate.id != track.id)
+        .take(6)
+        .toList(growable: false);
+  }
+
+  String recommendationReasonForTrack(Track track) {
+    final pieces = <String>[];
+    if (track.genre case final genre?) {
+      pieces.add(genre);
+    }
+    if (track.year case final year?) {
+      pieces.add('$year');
+    }
+    if (_likedTrackIds.contains(track.id)) {
+      pieces.add('liked');
+    }
+    if (_recentTrackIds.contains(track.id)) {
+      pieces.add('recent');
+    }
+
+    if (pieces.isEmpty) {
+      return 'Matched from your local library structure.';
+    }
+
+    return 'Matched from ${pieces.join(' • ')} signals in your local library.';
+  }
 
   Future<void> restoreSession() async {
     final sessionStore = _sessionStore;
@@ -530,40 +800,20 @@ class MusicAppController extends ChangeNotifier {
 
     try {
       final snapshot = await sessionStore.load();
-      final tracks = snapshot.tracks
-          .where((track) => track.filePath.isNotEmpty)
-          .toList(growable: false);
-      final trackIds = tracks.map((track) => track.id).toSet();
+      _applySessionSnapshot(snapshot);
 
-      _tracks = tracks;
-      _likedTrackIds
-        ..clear()
-        ..addAll(snapshot.likedTrackIds.where(trackIds.contains));
-      final playbackHistory = _restorePlaybackHistory(snapshot, trackIds);
-      _playbackHistoryByTrackId
-        ..clear()
-        ..addEntries(
-          playbackHistory.map((entry) => MapEntry(entry.trackId, entry)),
+      final restoredUser =
+          snapshot.userProfile ?? await _authService.restoreUser();
+      if (restoredUser != null) {
+        _userProfile = restoredUser;
+      }
+      _syncState = _buildDefaultSyncState();
+      await _refreshOnlineState(notifyAfterCompletion: false);
+      if (_userProfile != null) {
+        await _restoreCloudSnapshotIfAvailable(
+          applyRemoteWhenLibraryEmpty: true,
         );
-      _savedCollectionIds
-        ..clear()
-        ..addAll(snapshot.savedCollectionIds);
-      _recentTrackIds
-        ..clear()
-        ..addAll(snapshot.recentTrackIds.where(trackIds.contains));
-      _recentSearches
-        ..clear()
-        ..addAll(snapshot.recentSearches.take(8));
-      _selectedTab = snapshot.selectedTab;
-      _libraryFilter = snapshot.libraryFilter;
-      _librarySort = snapshot.librarySort;
-      _searchQuery = snapshot.searchQuery;
-      _savedCollectionIds.removeWhere(
-        (collectionId) => !importedCollections.any(
-          (collection) => collection.id == collectionId,
-        ),
-      );
-      await _restorePlaybackSnapshot(snapshot);
+      }
       notifyListeners();
     } catch (_) {
       _statusMessage =
@@ -602,6 +852,20 @@ class MusicAppController extends ChangeNotifier {
     _persistSession();
   }
 
+  void setSearchMode(SearchMode mode) {
+    if (_searchMode == mode) {
+      return;
+    }
+
+    _searchMode = mode;
+    if (mode == SearchMode.standard) {
+      _aiSearchSummary = null;
+      _aiSearchResults = <Track>[];
+    }
+    notifyListeners();
+    _persistSession();
+  }
+
   void updateSearchQuery(String value) {
     if (_searchQuery == value) {
       return;
@@ -612,11 +876,13 @@ class MusicAppController extends ChangeNotifier {
   }
 
   void clearSearch() {
-    if (_searchQuery.isEmpty) {
+    if (_searchQuery.isEmpty && _aiSearchResults.isEmpty) {
       return;
     }
 
     _searchQuery = '';
+    _aiSearchResults = <Track>[];
+    _aiSearchSummary = null;
     notifyListeners();
     _persistSession();
   }
@@ -643,6 +909,7 @@ class MusicAppController extends ChangeNotifier {
     _statusMessage = 'Cleared saved playback history from ChiMusic.';
     notifyListeners();
     _persistSession();
+    _queueSyncIfSignedIn();
   }
 
   void clearStatusMessage() {
@@ -661,6 +928,54 @@ class MusicAppController extends ChangeNotifier {
     }
 
     _rememberSearch(candidate);
+    if (_searchMode == SearchMode.ai) {
+      unawaited(runAiSearch(candidate));
+      return;
+    }
+
+    notifyListeners();
+    _persistSession();
+  }
+
+  Future<void> runAiSearch([String? value]) async {
+    final candidate = (value ?? _searchQuery).trim();
+    if (candidate.isEmpty) {
+      return;
+    }
+
+    _searchQuery = candidate;
+    _rememberSearch(candidate);
+
+    if (!canUseAiSearch) {
+      _hasUnlockedAiUpsell = true;
+      _aiSearchResults = <Track>[];
+      _aiSearchSummary =
+          'Your free AI searches are used up. Upgrade to Pro for unlimited natural-language search.';
+      notifyListeners();
+      _persistSession();
+      return;
+    }
+
+    _isRunningAiSearch = true;
+    _aiSearchSummary = 'Reading your library structure and recent listening…';
+    notifyListeners();
+
+    final results = await _recommendationService.semanticSearch(
+      query: candidate,
+      tracks: _tracks,
+      recentPlayedTracks: recentPlayedTracks,
+      favoriteTracks: favoriteTracks,
+    );
+
+    if (!hasPro && _aiSearchTrialsRemaining > 0) {
+      _aiSearchTrialsRemaining -= 1;
+    }
+    _hasUnlockedAiUpsell = true;
+    _aiSearchResults = results;
+    _aiSearchSummary = results.isEmpty
+        ? 'AI could not find a close library match for "$candidate". Try an artist, mood, or use case.'
+        : 'AI matched these tracks using genre, favorites, recency, and descriptive intent.';
+    _isRunningAiSearch = false;
     notifyListeners();
     _persistSession();
   }
@@ -673,6 +988,11 @@ class MusicAppController extends ChangeNotifier {
 
     _searchQuery = normalized;
     _rememberSearch(normalized);
+    if (_searchMode == SearchMode.ai) {
+      unawaited(runAiSearch(normalized));
+      return;
+    }
+
     notifyListeners();
     _persistSession();
   }
@@ -712,6 +1032,7 @@ class MusicAppController extends ChangeNotifier {
 
     notifyListeners();
     _persistSession();
+    _queueSyncIfSignedIn();
   }
 
   void toggleLikedTrack(String trackId) {
@@ -719,6 +1040,112 @@ class MusicAppController extends ChangeNotifier {
       _likedTrackIds.remove(trackId);
     } else {
       _likedTrackIds.add(trackId);
+    }
+
+    notifyListeners();
+    _persistSession();
+    unawaited(_refreshRecommendationContent());
+    _queueSyncIfSignedIn();
+  }
+
+  Future<void> signIn() async {
+    if (_isSigningIn) {
+      return;
+    }
+
+    _isSigningIn = true;
+    notifyListeners();
+
+    try {
+      _userProfile = await _authService.signIn();
+      _syncState = _buildDefaultSyncState();
+      _statusMessage = 'Signed in. Sync and AI features are now available.';
+      await _restoreCloudSnapshotIfAvailable(applyRemoteWhenLibraryEmpty: true);
+      await syncLibraryNow(silent: true);
+    } finally {
+      _isSigningIn = false;
+      notifyListeners();
+      _persistSession();
+    }
+  }
+
+  Future<void> signOut() async {
+    await _authService.signOut();
+    _userProfile = null;
+    _syncState = _buildDefaultSyncState();
+    _statusMessage = 'Signed out. Local playback still works offline.';
+    notifyListeners();
+    _persistSession();
+  }
+
+  Future<void> upgradeToPro() async {
+    if (_userProfile == null) {
+      await signIn();
+    }
+
+    final user = _userProfile;
+    if (user == null) {
+      return;
+    }
+
+    _userProfile = await _subscriptionService.upgradeToPro(user);
+    _statusMessage = 'ChiMusic Pro is active. AI search is now unlimited.';
+    notifyListeners();
+    _persistSession();
+  }
+
+  Future<void> syncLibraryNow({bool silent = false}) async {
+    final user = _userProfile;
+    if (user == null) {
+      _syncState = _buildDefaultSyncState();
+      if (!silent) {
+        _statusMessage = 'Sign in to sync your library across devices.';
+        notifyListeners();
+      }
+      _persistSession();
+      return;
+    }
+
+    if (_syncState.isBusy) {
+      return;
+    }
+
+    _syncState = SyncState(
+      phase: SyncPhase.syncing,
+      message: 'Syncing your library snapshot…',
+      lastSyncedAt: _syncState.lastSyncedAt,
+    );
+    notifyListeners();
+
+    final snapshot = MusicCloudSnapshot(
+      userId: user.id,
+      tracks: List<Track>.from(_tracks),
+      playbackHistory: _playbackHistoryByTrackId.values.toList(growable: false),
+      likedTrackIds: Set<String>.from(_likedTrackIds),
+      savedCollectionIds: Set<String>.from(_savedCollectionIds),
+      recentTrackIds: List<String>.from(_recentTrackIds),
+      recentSearches: List<String>.from(_recentSearches),
+      queueTrackIds: _queue.map((track) => track.id).toList(growable: false),
+      currentTrackId: _currentTrack?.id,
+      currentCollectionId: _currentCollection?.id,
+      positionMs: _position.inMilliseconds,
+    );
+
+    try {
+      _syncState = await _cloudSyncService.syncSnapshot(user, snapshot);
+      _markLibrarySynced(_syncState.lastSyncedAt);
+      if (!silent) {
+        _statusMessage = _syncState.message;
+      }
+    } catch (_) {
+      _syncState = SyncState(
+        phase: SyncPhase.error,
+        message: 'Cloud sync failed. Local playback and search still work.',
+        lastSyncedAt: _syncState.lastSyncedAt,
+      );
+      if (!silent) {
+        _statusMessage = _syncState.message;
+      }
     }
 
     notifyListeners();
@@ -872,15 +1299,19 @@ class MusicAppController extends ChangeNotifier {
   }
 
   Future<void> removeCollectionFromLibrary(String collectionId) async {
-    MusicCollection? target;
-    for (final collection in importedCollections) {
-      if (collection.id == collectionId) {
-        target = collection;
-        break;
-      }
+    final target = collectionById(collectionId);
+    if (target == null) {
+      return;
     }
 
-    if (target == null) {
+    if (target.id == 'all_tracks' ||
+        target.id == 'favorites' ||
+        target.kind == MusicCollectionKind.smartPlaylist ||
+        target.kind == MusicCollectionKind.playlist) {
+      _savedCollectionIds.remove(collectionId);
+      _statusMessage = 'Removed $collectionId from saved library shortcuts.';
+      notifyListeners();
+      _persistSession();
       return;
     }
 
@@ -922,13 +1353,19 @@ class MusicAppController extends ChangeNotifier {
     _playbackHistoryByTrackId.clear();
     _recentTrackIds.clear();
     _recentSearches.clear();
+    _aiSearchResults = <Track>[];
+    _smartPlaylists = <SmartPlaylist>[];
+    _recommendationCards = <RecommendationCard>[];
+    _lyricsByTrackId.clear();
     _isPlaying = false;
     _isPreparingPlayback = false;
     _lastPersistedPositionBucket = null;
     _statusMessage =
         'Cleared imported items from ChiMusic. Original audio files were not deleted.';
+    _syncState = _buildDefaultSyncState();
     notifyListeners();
     _persistSession();
+    _queueSyncIfSignedIn();
   }
 
   Future<void> seekToFraction(double fraction) async {
@@ -977,6 +1414,7 @@ class MusicAppController extends ChangeNotifier {
       _isPlaying = true;
       _lastPersistedPositionBucket = 0;
       _markTrackPlayed(nextTrack);
+      unawaited(loadLyricsForTrack(nextTrack));
       notifyListeners();
       return;
     }
@@ -1024,6 +1462,7 @@ class MusicAppController extends ChangeNotifier {
       _isPlaying = true;
       _lastPersistedPositionBucket = 0;
       _markTrackPlayed(previousTrack);
+      unawaited(loadLyricsForTrack(previousTrack));
       notifyListeners();
       return;
     }
@@ -1037,16 +1476,84 @@ class MusicAppController extends ChangeNotifier {
   }
 
   MusicCollection? collectionForTrack(Track track) {
+    final currentCollection = _currentCollection;
+    if (currentCollection != null &&
+        currentCollection.tracks.any((item) => item.id == track.id)) {
+      return _restoreCollectionFromId(currentCollection.id) ??
+          currentCollection;
+    }
+
+    for (final collection in playlistCollections) {
+      if (collection.tracks.any((item) => item.id == track.id)) {
+        return collection;
+      }
+    }
+
+    for (final collection in albumCollections) {
+      if (collection.tracks.any((item) => item.id == track.id)) {
+        return collection;
+      }
+    }
+
     for (final collection in importedCollections) {
-      final containsTrack = collection.tracks.any(
-        (item) => item.id == track.id,
-      );
-      if (containsTrack) {
+      if (collection.tracks.any((item) => item.id == track.id)) {
         return collection;
       }
     }
 
     return null;
+  }
+
+  MusicCollection? collectionById(String collectionId) {
+    for (final collection in allBrowsableCollections) {
+      if (collection.id == collectionId) {
+        return collection;
+      }
+    }
+
+    return null;
+  }
+
+  Future<void> loadLyricsForTrack(Track track) async {
+    final existing = _lyricsByTrackId[track.id];
+    if (existing != null &&
+        (existing.status == LyricsStatus.loading ||
+            existing.status == LyricsStatus.available ||
+            existing.status == LyricsStatus.unavailable)) {
+      return;
+    }
+
+    if (track.lyricsAvailability == LyricsAvailability.unavailable) {
+      _lyricsByTrackId[track.id] = const LyricsState(
+        status: LyricsStatus.unavailable,
+        title: 'No synced lyrics yet',
+        source: 'ChiMusic Metadata',
+      );
+      _notifyIfAlive();
+      return;
+    }
+
+    _lyricsByTrackId[track.id] = const LyricsState(
+      status: LyricsStatus.loading,
+      title: 'Loading lyrics...',
+      source: 'ChiMusic Metadata',
+    );
+    _notifyIfAlive();
+
+    try {
+      _lyricsByTrackId[track.id] = await _metadataEnrichmentService.fetchLyrics(
+        track,
+      );
+    } catch (_) {
+      _lyricsByTrackId[track.id] = const LyricsState(
+        status: LyricsStatus.error,
+        title: 'Lyrics unavailable',
+        source: 'ChiMusic Metadata',
+        errorMessage: 'Could not load synced lyrics for this track.',
+      );
+    }
+
+    _notifyIfAlive();
   }
 
   int _scoreTrackMatch(Track track, String query) {
@@ -1055,6 +1562,8 @@ class MusicAppController extends ChangeNotifier {
     final artist = track.artist.toLowerCase();
     final album = track.album.toLowerCase();
     final fileName = track.fileName.toLowerCase();
+    final genre = (track.genre ?? '').toLowerCase();
+    final year = '${track.year ?? ''}';
 
     if (title.startsWith(query)) {
       score += 120;
@@ -1072,6 +1581,14 @@ class MusicAppController extends ChangeNotifier {
       score += 55;
     } else if (album.contains(query)) {
       score += 40;
+    }
+
+    if (genre.contains(query)) {
+      score += 32;
+    }
+
+    if (year.contains(query)) {
+      score += 24;
     }
 
     if (fileName.contains(query)) {
@@ -1094,6 +1611,8 @@ class MusicAppController extends ChangeNotifier {
     final title = collection.title.toLowerCase();
     final subtitle = collection.subtitle.toLowerCase();
     final description = collection.description.toLowerCase();
+    final prompt = (collection.prompt ?? '').toLowerCase();
+    final reason = (collection.reason ?? '').toLowerCase();
 
     if (title.startsWith(query)) {
       score += 110;
@@ -1107,6 +1626,14 @@ class MusicAppController extends ChangeNotifier {
 
     if (description.contains(query)) {
       score += 22;
+    }
+
+    if (prompt.contains(query)) {
+      score += 24;
+    }
+
+    if (reason.contains(query)) {
+      score += 20;
     }
 
     if (_savedCollectionIds.contains(collection.id)) {
@@ -1125,6 +1652,7 @@ class MusicAppController extends ChangeNotifier {
       kind: MusicCollectionKind.playlist,
       palette: favorites.first.palette,
       tracks: favorites,
+      reason: 'Built from your saved tracks.',
     );
   }
 
@@ -1134,8 +1662,8 @@ class MusicAppController extends ChangeNotifier {
     );
     _recentSearches.insert(0, value);
 
-    if (_recentSearches.length > 8) {
-      _recentSearches.removeRange(8, _recentSearches.length);
+    if (_recentSearches.length > 10) {
+      _recentSearches.removeRange(10, _recentSearches.length);
     }
   }
 
@@ -1167,6 +1695,9 @@ class MusicAppController extends ChangeNotifier {
     _playbackHistoryByTrackId.removeWhere(
       (trackId, _) => removedTrackIds.contains(trackId),
     );
+    _lyricsByTrackId.removeWhere(
+      (trackId, _) => removedTrackIds.contains(trackId),
+    );
 
     if (_tracks.isEmpty || removedCurrentTrack) {
       _queue = <Track>[];
@@ -1178,27 +1709,18 @@ class MusicAppController extends ChangeNotifier {
       _lastPersistedPositionBucket = null;
     } else if (_currentTrack != null) {
       final currentTrack = _currentTrack!;
-      if (_currentCollection?.id == 'favorites') {
-        final favorites = favoriteTracks;
-        _currentCollection = favorites.isEmpty
-            ? null
-            : _buildLikedSongsCollection(favorites);
-      } else if (_currentCollection?.id == 'all_tracks') {
-        _currentCollection = allTracksCollection;
-      } else {
-        _currentCollection =
-            collectionForTrack(currentTrack) ?? allTracksCollection;
-      }
+      _currentCollection =
+          collectionForTrack(currentTrack) ?? allTracksCollection;
     }
 
     _savedCollectionIds.removeWhere(
-      (collectionId) => !importedCollections.any(
-        (collection) => collection.id == collectionId,
-      ),
+      (collectionId) => collectionById(collectionId) == null,
     );
     _statusMessage = successMessage;
     notifyListeners();
+    await _refreshOnlineState(notifyAfterCompletion: false);
     _persistSession();
+    _queueSyncIfSignedIn();
   }
 
   Future<void> _stopPlayback() async {
@@ -1235,6 +1757,7 @@ class MusicAppController extends ChangeNotifier {
     }
 
     _tracks = <Track>[...newTracks, ..._tracks];
+    _primeLyricsStates();
     final skippedMessage = duplicateCount > 0
         ? ' Skipped $duplicateCount item${duplicateCount == 1 ? '' : 's'} already in your library.'
         : '';
@@ -1249,12 +1772,12 @@ class MusicAppController extends ChangeNotifier {
         autoplay: false,
         clearStatusMessage: false,
       );
-      await flushSession();
-      return;
     }
 
     notifyListeners();
+    await _refreshOnlineState(notifyAfterCompletion: false);
     await flushSession();
+    _queueSyncIfSignedIn();
   }
 
   Future<void> _loadQueue(
@@ -1281,6 +1804,7 @@ class MusicAppController extends ChangeNotifier {
     _isPreparingPlayback = true;
     _isPlaying = autoplay && !_audioEnabled;
     _markTrackPlayed(currentTrack);
+    unawaited(loadLyricsForTrack(currentTrack));
     notifyListeners();
 
     if (!_audioEnabled || _player == null) {
@@ -1359,6 +1883,7 @@ class MusicAppController extends ChangeNotifier {
 
         _currentTrack = nextTrack;
         _markTrackPlayed(nextTrack);
+        unawaited(loadLyricsForTrack(nextTrack));
         notifyListeners();
       }),
     );
@@ -1427,6 +1952,7 @@ class MusicAppController extends ChangeNotifier {
     );
 
     _persistSession();
+    unawaited(_refreshRecommendationContent());
   }
 
   Future<void> flushSession() async {
@@ -1451,10 +1977,14 @@ class MusicAppController extends ChangeNotifier {
       libraryFilter: _libraryFilter,
       librarySort: _librarySort,
       searchQuery: _searchQuery,
+      searchMode: _searchMode,
       queueTrackIds: _queue.map((track) => track.id).toList(growable: false),
       currentTrackId: _currentTrack?.id,
       currentCollectionId: _currentCollection?.id,
       positionMs: _position.inMilliseconds,
+      userProfile: _userProfile,
+      aiSearchTrialsRemaining: _aiSearchTrialsRemaining,
+      hasUnlockedAiUpsell: _hasUnlockedAiUpsell,
     );
 
     _persistOperation = _persistOperation.then((_) async {
@@ -1535,6 +2065,7 @@ class MusicAppController extends ChangeNotifier {
     _isPreparingPlayback = _audioEnabled && _player != null;
     _lastPersistedPositionBucket = initialPosition.inSeconds ~/ 5;
     _syncCurrentTrackHistoryPosition(initialPosition);
+    unawaited(loadLyricsForTrack(currentTrack));
 
     if (!_audioEnabled || _player == null) {
       _isPreparingPlayback = false;
@@ -1573,25 +2104,7 @@ class MusicAppController extends ChangeNotifier {
       return null;
     }
 
-    if (collectionId == 'all_tracks') {
-      return allTracksCollection;
-    }
-
-    if (collectionId == 'favorites') {
-      final favorites = favoriteTracks;
-      if (favorites.isEmpty) {
-        return null;
-      }
-      return _buildLikedSongsCollection(favorites);
-    }
-
-    for (final collection in importedCollections) {
-      if (collection.id == collectionId) {
-        return collection;
-      }
-    }
-
-    return null;
+    return collectionById(collectionId);
   }
 
   Duration _clampedPositionForTrack(Track track, Duration position) {
@@ -1651,8 +2164,233 @@ class MusicAppController extends ChangeNotifier {
     _persistSession();
   }
 
+  void _applySessionSnapshot(MusicSessionSnapshot snapshot) {
+    final tracks = snapshot.tracks
+        .where((track) => track.filePath.isNotEmpty)
+        .toList(growable: false);
+    final trackIds = tracks.map((track) => track.id).toSet();
+
+    _tracks = tracks;
+    _likedTrackIds
+      ..clear()
+      ..addAll(snapshot.likedTrackIds.where(trackIds.contains));
+    final playbackHistory = _restorePlaybackHistory(snapshot, trackIds);
+    _playbackHistoryByTrackId
+      ..clear()
+      ..addEntries(
+        playbackHistory.map((entry) => MapEntry(entry.trackId, entry)),
+      );
+    _savedCollectionIds
+      ..clear()
+      ..addAll(snapshot.savedCollectionIds);
+    _recentTrackIds
+      ..clear()
+      ..addAll(snapshot.recentTrackIds.where(trackIds.contains));
+    _recentSearches
+      ..clear()
+      ..addAll(snapshot.recentSearches.take(10));
+    _selectedTab = snapshot.selectedTab;
+    _libraryFilter = snapshot.libraryFilter;
+    _librarySort = snapshot.librarySort;
+    _searchQuery = snapshot.searchQuery;
+    _searchMode = snapshot.searchMode;
+    _userProfile = snapshot.userProfile;
+    _aiSearchTrialsRemaining = snapshot.aiSearchTrialsRemaining;
+    _hasUnlockedAiUpsell = snapshot.hasUnlockedAiUpsell;
+    _savedCollectionIds.removeWhere(
+      (collectionId) => collectionById(collectionId) == null,
+    );
+    _primeLyricsStates();
+    unawaited(_restorePlaybackSnapshot(snapshot));
+  }
+
+  SyncState _buildDefaultSyncState() {
+    final user = _userProfile;
+    if (user == null) {
+      return const SyncState();
+    }
+
+    return const SyncState(
+      phase: SyncPhase.idle,
+      message: 'Signed in. Sync is ready when you want it.',
+    );
+  }
+
+  void _primeLyricsStates() {
+    final next = <String, LyricsState>{};
+    for (final track in _tracks) {
+      next[track.id] =
+          _lyricsByTrackId[track.id] ??
+          LyricsState(
+            status: track.lyricsAvailability == LyricsAvailability.available
+                ? LyricsStatus.idle
+                : LyricsStatus.unavailable,
+            title: track.lyricsAvailability == LyricsAvailability.available
+                ? 'Lyrics ready to load'
+                : 'No synced lyrics yet',
+            source: 'ChiMusic Metadata',
+          );
+    }
+    _lyricsByTrackId
+      ..clear()
+      ..addAll(next);
+  }
+
+  Future<void> _refreshOnlineState({bool notifyAfterCompletion = true}) async {
+    if (_tracks.isEmpty) {
+      _smartPlaylists = <SmartPlaylist>[];
+      _recommendationCards = <RecommendationCard>[];
+      _aiSearchResults = <Track>[];
+      _aiSearchSummary = null;
+      _primeLyricsStates();
+      if (notifyAfterCompletion) {
+        _notifyIfAlive();
+      }
+      return;
+    }
+
+    _isEnhancingLibrary = true;
+    if (notifyAfterCompletion) {
+      _notifyIfAlive();
+    }
+
+    final enrichedTracks = await _metadataEnrichmentService.enrichTracks(
+      _tracks,
+    );
+    _replaceLibraryTracks(enrichedTracks);
+    _primeLyricsStates();
+    await _refreshRecommendationContent();
+    _isEnhancingLibrary = false;
+    if (notifyAfterCompletion) {
+      _notifyIfAlive();
+    }
+    _persistSession();
+  }
+
+  Future<void> _refreshRecommendationContent() async {
+    if (_tracks.isEmpty) {
+      _smartPlaylists = <SmartPlaylist>[];
+      _recommendationCards = <RecommendationCard>[];
+      return;
+    }
+
+    _smartPlaylists = await _recommendationService.buildSmartPlaylists(
+      tracks: _tracks,
+      recentPlayedTracks: recentPlayedTracks,
+      favoriteTracks: favoriteTracks,
+    );
+    _recommendationCards = await _recommendationService
+        .buildRecommendationCards(
+          tracks: _tracks,
+          recentPlayedTracks: recentPlayedTracks,
+          favoriteTracks: favoriteTracks,
+        );
+    _notifyIfAlive();
+  }
+
+  void _replaceLibraryTracks(List<Track> tracks) {
+    final tracksById = {for (final track in tracks) track.id: track};
+    _tracks = tracks;
+    _queue = _queue
+        .map((track) => tracksById[track.id] ?? track)
+        .where((track) => tracksById.containsKey(track.id))
+        .toList(growable: false);
+    if (_currentTrack case final currentTrack?) {
+      _currentTrack = tracksById[currentTrack.id] ?? currentTrack;
+    }
+    if (_currentCollection case final currentCollection?) {
+      _currentCollection =
+          _restoreCollectionFromId(currentCollection.id) ?? currentCollection;
+    }
+  }
+
+  Future<void> _restoreCloudSnapshotIfAvailable({
+    required bool applyRemoteWhenLibraryEmpty,
+  }) async {
+    final user = _userProfile;
+    if (user == null) {
+      _syncState = _buildDefaultSyncState();
+      return;
+    }
+
+    final snapshot = await _cloudSyncService.restoreSnapshot(user);
+    if (snapshot == null) {
+      _syncState = _buildDefaultSyncState();
+      return;
+    }
+
+    _syncState = SyncState(
+      phase: SyncPhase.synced,
+      message: 'Cloud snapshot found for this account.',
+      lastSyncedAt: snapshot.syncedAt,
+    );
+
+    if (!applyRemoteWhenLibraryEmpty || _tracks.isNotEmpty) {
+      return;
+    }
+
+    final localSnapshot = MusicSessionSnapshot(
+      tracks: snapshot.tracks,
+      playbackHistory: snapshot.playbackHistory,
+      likedTrackIds: snapshot.likedTrackIds,
+      savedCollectionIds: snapshot.savedCollectionIds,
+      recentTrackIds: snapshot.recentTrackIds,
+      recentSearches: snapshot.recentSearches,
+      queueTrackIds: snapshot.queueTrackIds,
+      currentTrackId: snapshot.currentTrackId,
+      currentCollectionId: snapshot.currentCollectionId,
+      positionMs: snapshot.positionMs,
+      userProfile: _userProfile,
+      searchMode: _searchMode,
+      libraryFilter: _libraryFilter,
+      librarySort: _librarySort,
+      selectedTab: _selectedTab,
+      searchQuery: _searchQuery,
+      aiSearchTrialsRemaining: _aiSearchTrialsRemaining,
+      hasUnlockedAiUpsell: _hasUnlockedAiUpsell,
+    );
+    _applySessionSnapshot(localSnapshot);
+    await _refreshOnlineState(notifyAfterCompletion: false);
+    _statusMessage = 'Restored your synced ChiMusic library snapshot.';
+  }
+
+  void _markLibrarySynced(DateTime? timestamp) {
+    if (timestamp == null || _tracks.isEmpty) {
+      return;
+    }
+
+    _tracks = _tracks
+        .map((track) => track.copyWith(lastSyncedAt: timestamp))
+        .toList(growable: false);
+    _queue = _queue
+        .map((track) => track.copyWith(lastSyncedAt: timestamp))
+        .toList(growable: false);
+    if (_currentTrack case final currentTrack?) {
+      _currentTrack = currentTrack.copyWith(lastSyncedAt: timestamp);
+    }
+    if (_currentCollection case final currentCollection?) {
+      _currentCollection =
+          _restoreCollectionFromId(currentCollection.id) ?? currentCollection;
+    }
+  }
+
+  void _queueSyncIfSignedIn() {
+    if (!isSignedIn) {
+      return;
+    }
+    unawaited(syncLibraryNow(silent: true));
+  }
+
+  void _notifyIfAlive() {
+    if (_isDisposed) {
+      return;
+    }
+    notifyListeners();
+  }
+
   @override
   void dispose() {
+    _isDisposed = true;
     unawaited(flushSession());
     for (final subscription in _subscriptions) {
       subscription.cancel();

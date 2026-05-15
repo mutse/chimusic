@@ -5,8 +5,12 @@ import 'package:chimusic/models/music_models.dart';
 import 'package:chimusic/state/chimusic_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  SharedPreferences.setMockInitialValues(<String, Object>{});
+
   group('MusicAppController', () {
     test(
       'search ranking favors title prefix matches and stores recent searches',
@@ -593,6 +597,100 @@ void main() {
         expect(controller.playbackHistoryCount, 0);
         expect(controller.totalPlayCount, 0);
         expect(controller.recentPlayedTracks, isEmpty);
+      },
+    );
+
+    test(
+      'ai search uses free trials and surfaces intent-based matches',
+      () async {
+        final favoriteTrack = _track(
+          folderPath: '/music/midnight',
+          title: 'Night Drive',
+          artist: 'Signal Bloom',
+          album: 'After Hours',
+          duration: const Duration(minutes: 4, seconds: 10),
+          importedAt: DateTime(2026, 5, 6, 21),
+        );
+        final otherTrack = _track(
+          folderPath: '/music/daylight',
+          title: 'Morning Tape',
+          artist: 'Signal Bloom',
+          album: 'Daylight',
+          duration: const Duration(minutes: 3, seconds: 18),
+          importedAt: DateTime(2026, 5, 6, 9),
+        );
+        final controller = MusicAppController(
+          enableAudio: false,
+          initialTracks: [favoriteTrack, otherTrack],
+          initialLikedTrackIds: {favoriteTrack.id},
+        );
+        addTearDown(controller.dispose);
+
+        controller.setSearchMode(SearchMode.ai);
+        controller.updateSearchQuery('favorite');
+        await controller.runAiSearch();
+
+        expect(controller.aiSearchResults.first.id, favoriteTrack.id);
+        expect(controller.aiSearchTrialsRemaining, 1);
+        expect(controller.shouldShowAiUpsell, isTrue);
+      },
+    );
+
+    test('upgradeToPro unlocks unlimited AI access', () async {
+      final controller = MusicAppController(enableAudio: false);
+      addTearDown(controller.dispose);
+
+      await controller.upgradeToPro();
+
+      expect(controller.isSignedIn, isTrue);
+      expect(controller.hasPro, isTrue);
+      expect(controller.membershipTier, MembershipTier.pro);
+      expect(controller.canUseAiSearch, isTrue);
+    });
+
+    test(
+      'albums filter exposes album collections generated from local files',
+      () {
+        final firstAlbumTrack = _track(
+          folderPath: '/music/coast',
+          title: 'Blue Horizon',
+          artist: 'North Coast',
+          album: 'Sea Glass',
+          duration: const Duration(minutes: 4),
+          importedAt: DateTime(2026, 5, 6, 10),
+        );
+        final secondAlbumTrack = _track(
+          folderPath: '/music/coast',
+          title: 'Signals',
+          artist: 'North Coast',
+          album: 'Sea Glass',
+          duration: const Duration(minutes: 3, seconds: 12),
+          importedAt: DateTime(2026, 5, 6, 11),
+        );
+        final otherAlbumTrack = _track(
+          folderPath: '/music/city',
+          title: 'Late Metro',
+          artist: 'Night Ferry',
+          album: 'City Lines',
+          duration: const Duration(minutes: 4, seconds: 2),
+          importedAt: DateTime(2026, 5, 6, 12),
+        );
+        final controller = MusicAppController(
+          enableAudio: false,
+          initialTracks: [firstAlbumTrack, secondAlbumTrack, otherAlbumTrack],
+        );
+        addTearDown(controller.dispose);
+
+        controller.openLibraryFilter(LibraryFilter.albums);
+
+        expect(controller.filteredLibraryCollections.length, 2);
+        expect(
+          controller.filteredLibraryCollections.map(
+            (collection) => collection.title,
+          ),
+          containsAll(<String>['Sea Glass', 'City Lines']),
+        );
+        expect(controller.albumCount, 2);
       },
     );
   });
