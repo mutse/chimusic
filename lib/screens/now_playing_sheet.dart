@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 
 import '../app/chimusic_theme.dart';
 import '../models/music_models.dart';
-import '../screens/collection_detail_page.dart';
 import '../state/chimusic_scope.dart';
 import '../widgets/glass.dart';
 
@@ -158,91 +157,14 @@ class NowPlayingSheet extends StatelessWidget {
                                     collection: collection,
                                   ),
                                 ],
-                                const SizedBox(height: 22),
-                                _ProgressSection(track: track),
-                                const SizedBox(height: 22),
-                                _TransportControls(
-                                  track: track,
-                                  collection: collection,
-                                ),
                                 const SizedBox(height: 24),
-                                GlassPanel(
-                                  padding: const EdgeInsets.all(18),
-                                  borderRadius: BorderRadius.circular(30),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'Up Next',
-                                        style: Theme.of(
-                                          context,
-                                        ).textTheme.titleLarge,
-                                      ),
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        'Keep the queue moving or jump into another track instantly.',
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .bodyMedium
-                                            ?.copyWith(
-                                              color: Colors.white.withValues(
-                                                alpha: 0.64,
-                                              ),
-                                            ),
-                                      ),
-                                      const SizedBox(height: 14),
-                                      if (controller.upNext.isEmpty)
-                                        Text(
-                                          'The queue ends with the current track.',
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .bodyMedium
-                                              ?.copyWith(
-                                                color: Colors.white.withValues(
-                                                  alpha: 0.66,
-                                                ),
-                                              ),
-                                        )
-                                      else
-                                        for (final queuedTrack
-                                            in controller.upNext) ...[
-                                          TrackRow(
-                                            track: queuedTrack,
-                                            onTap: () {
-                                              controller.playTrack(
-                                                queuedTrack,
-                                                collection:
-                                                    controller
-                                                        .currentCollection ??
-                                                    controller
-                                                        .collectionForTrack(
-                                                          queuedTrack,
-                                                        ),
-                                              );
-                                            },
-                                            trailing: Text(
-                                              formatDuration(
-                                                queuedTrack.duration,
-                                              ),
-                                              style: Theme.of(context)
-                                                  .textTheme
-                                                  .bodyMedium
-                                                  ?.copyWith(
-                                                    color: Colors.white
-                                                        .withValues(
-                                                          alpha: 0.66,
-                                                        ),
-                                                  ),
-                                            ),
-                                          ),
-                                          if (queuedTrack !=
-                                              controller.upNext.last)
-                                            const SizedBox(height: 12),
-                                        ],
-                                    ],
-                                  ),
-                                ),
+                                _LyricsSection(track: track),
+                                const SizedBox(height: 24),
+                                _CreditsSection(track: track),
+                                const SizedBox(height: 24),
+                                _SimilarSection(track: track),
+                                const SizedBox(height: 24),
+                                _QueueSection(track: track),
                               ],
                             ),
                           ),
@@ -269,6 +191,7 @@ class _NowPlayingHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = ChiMusicScope.watch(context);
+    final historyEntry = controller.playbackHistoryEntryForTrack(track.id);
     final queueIndex = controller.queue.indexWhere(
       (item) => item.id == track.id,
     );
@@ -295,6 +218,11 @@ class _NowPlayingHero extends StatelessWidget {
                 leading: const Icon(Icons.audio_file_rounded, size: 16),
               ),
               GlassPill(label: queueLabel),
+              if (historyEntry != null)
+                GlassPill(
+                  label:
+                      '${historyEntry.playCount} play${historyEntry.playCount == 1 ? '' : 's'}',
+                ),
               if (collection != null) GlassPill(label: collection!.kind.label),
             ],
           ),
@@ -312,7 +240,7 @@ class _NowPlayingHero extends StatelessWidget {
                 ),
                 const SizedBox(width: 18),
                 Expanded(
-                  child: _HeroTrackCopy(track: track, collection: collection),
+                  child: _HeroCopy(track: track, collection: collection),
                 ),
               ],
             )
@@ -321,46 +249,164 @@ class _NowPlayingHero extends StatelessWidget {
               child: ArtworkCover(
                 title: track.album,
                 palette: track.palette,
-                size: 280,
+                size: 240,
                 showTitle: true,
                 icon: Icons.music_note_rounded,
               ),
             ),
             const SizedBox(height: 20),
-            _HeroTrackCopy(track: track, collection: collection),
+            _HeroCopy(track: track, collection: collection),
           ],
+          const SizedBox(height: 22),
+          _ProgressCluster(track: track),
+          const SizedBox(height: 18),
+          _TransportCluster(track: track),
         ],
       ),
     );
   }
 }
 
-class _HeroTrackCopy extends StatelessWidget {
-  const _HeroTrackCopy({required this.track, required this.collection});
+class _HeroCopy extends StatelessWidget {
+  const _HeroCopy({required this.track, required this.collection});
 
   final Track track;
   final MusicCollection? collection;
 
   @override
   Widget build(BuildContext context) {
+    final controller = ChiMusicScope.watch(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(track.title, style: Theme.of(context).textTheme.displaySmall),
         const SizedBox(height: 10),
         Text(
-          track.artist,
-          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-            color: Colors.white.withValues(alpha: 0.78),
+          '${track.artist} • ${track.album}',
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            color: Colors.white.withValues(alpha: 0.72),
           ),
         ),
         const SizedBox(height: 14),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            if (track.genre case final genre?) GlassPill(label: genre),
+            if (track.year case final year?) GlassPill(label: '$year'),
+            if (track.bitrate case final bitrate?)
+              GlassPill(label: '${bitrate}kbps'),
+            GlassPill(
+              label: controller.isTrackLiked(track.id) ? 'Liked' : 'Like',
+              onTap: () => controller.toggleLikedTrack(track.id),
+            ),
+          ],
+        ),
+        const SizedBox(height: 18),
         Text(
           collection?.description ??
-              'A local file from your imported library, currently playing through a live queue.',
-          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-            color: Colors.white.withValues(alpha: 0.68),
+              controller.recommendationReasonForTrack(track),
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: Colors.white.withValues(alpha: 0.66),
           ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ProgressCluster extends StatelessWidget {
+  const _ProgressCluster({required this.track});
+
+  final Track track;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = ChiMusicScope.watch(context);
+    return Column(
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(999),
+          child: LinearProgressIndicator(
+            value: controller.playbackProgress.clamp(0.0, 1.0),
+            minHeight: 6,
+            backgroundColor: Colors.white.withValues(alpha: 0.10),
+            valueColor: AlwaysStoppedAnimation<Color>(
+              LiquidPalette.aqua.withValues(alpha: 0.92),
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Text(
+              formatDuration(controller.position, placeholder: '00:00'),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Colors.white.withValues(alpha: 0.66),
+              ),
+            ),
+            const Spacer(),
+            Text(
+              formatDuration(track.duration),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Colors.white.withValues(alpha: 0.66),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _TransportCluster extends StatelessWidget {
+  const _TransportCluster({required this.track});
+
+  final Track track;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = ChiMusicScope.watch(context);
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        GlassIconButton(
+          icon: Icons.skip_previous_rounded,
+          onTap: () {
+            controller.skipPrevious();
+          },
+          size: 54,
+          iconSize: 28,
+        ),
+        const SizedBox(width: 14),
+        GlassPanel(
+          onTap: () {
+            controller.togglePlayPause();
+          },
+          padding: const EdgeInsets.all(18),
+          borderRadius: BorderRadius.circular(999),
+          tintColors: [
+            LiquidPalette.aqua.withValues(alpha: 0.96),
+            LiquidPalette.mint.withValues(alpha: 0.74),
+          ],
+          borderColor: LiquidPalette.mint.withValues(alpha: 0.22),
+          withShadow: false,
+          child: Icon(
+            controller.isPlaying
+                ? Icons.pause_rounded
+                : Icons.play_arrow_rounded,
+            size: 30,
+            color: LiquidPalette.ink,
+          ),
+        ),
+        const SizedBox(width: 14),
+        GlassIconButton(
+          icon: Icons.skip_next_rounded,
+          onTap: () {
+            controller.skipNext();
+          },
+          size: 54,
+          iconSize: 28,
         ),
       ],
     );
@@ -376,66 +422,92 @@ class _PlaybackSideRail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = ChiMusicScope.watch(context);
-
     return Column(
       children: [
         GlassPanel(
-          padding: const EdgeInsets.all(22),
-          borderRadius: BorderRadius.circular(32),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Queue Context',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 14),
-              _RailMetric(
-                label: 'Collection',
-                value: collection?.title ?? 'Current Queue',
-              ),
-              const SizedBox(height: 12),
-              _RailMetric(
-                label: 'Duration',
-                value: formatDuration(track.duration),
-              ),
-              const SizedBox(height: 12),
-              _RailMetric(
-                label: 'Liked',
-                value: controller.isTrackLiked(track.id) ? 'Saved' : 'Not yet',
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 14),
-        GlassPanel(
-          padding: const EdgeInsets.all(22),
-          borderRadius: BorderRadius.circular(32),
+          padding: const EdgeInsets.all(20),
+          borderRadius: BorderRadius.circular(30),
           tintColors: [
-            LiquidPalette.surfaceSoft.withValues(alpha: 0.78),
-            LiquidPalette.surfaceRaised.withValues(alpha: 0.92),
+            LiquidPalette.surfaceRaised.withValues(alpha: 0.98),
+            LiquidPalette.surface.withValues(alpha: 0.95),
           ],
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Source File',
+                'Recommendation Context',
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               const SizedBox(height: 10),
               Text(
-                track.fileName,
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                track.filePath,
-                maxLines: 4,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Colors.white.withValues(alpha: 0.58),
+                controller.recommendationReasonForTrack(track),
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Colors.white.withValues(alpha: 0.68),
                 ),
               ),
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  GlassPill(label: controller.membershipTier.label),
+                  GlassPill(label: controller.syncState.phase.name),
+                  if (collection?.reason case final reason?)
+                    GlassPill(label: reason),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 18),
+        GlassPanel(
+          padding: const EdgeInsets.all(20),
+          borderRadius: BorderRadius.circular(30),
+          tintColors: [
+            LiquidPalette.surfaceRaised.withValues(alpha: 0.98),
+            LiquidPalette.surface.withValues(alpha: 0.95),
+          ],
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Up Next', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 8),
+              Text(
+                'Jump instantly or let the queue keep moving.',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Colors.white.withValues(alpha: 0.64),
+                ),
+              ),
+              const SizedBox(height: 14),
+              if (controller.upNext.isEmpty)
+                Text(
+                  'The queue ends with the current track.',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Colors.white.withValues(alpha: 0.66),
+                  ),
+                )
+              else
+                for (final queuedTrack in controller.upNext) ...[
+                  TrackRow(
+                    track: queuedTrack,
+                    onTap: () {
+                      controller.playTrack(
+                        queuedTrack,
+                        collection:
+                            controller.currentCollection ??
+                            controller.collectionForTrack(queuedTrack),
+                      );
+                    },
+                    trailing: Text(
+                      formatDuration(queuedTrack.duration),
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.66),
+                      ),
+                    ),
+                  ),
+                  if (queuedTrack != controller.upNext.last)
+                    const SizedBox(height: 12),
+                ],
             ],
           ),
         ),
@@ -444,141 +516,170 @@ class _PlaybackSideRail extends StatelessWidget {
   }
 }
 
-class _RailMetric extends StatelessWidget {
-  const _RailMetric({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: Theme.of(context).textTheme.labelLarge?.copyWith(
-            color: Colors.white.withValues(alpha: 0.50),
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(value, style: Theme.of(context).textTheme.titleMedium),
-      ],
-    );
-  }
-}
-
-class _ProgressSection extends StatelessWidget {
-  const _ProgressSection({required this.track});
+class _LyricsSection extends StatelessWidget {
+  const _LyricsSection({required this.track});
 
   final Track track;
 
   @override
   Widget build(BuildContext context) {
     final controller = ChiMusicScope.watch(context);
-    final progress = controller.playbackProgress.clamp(0.0, 1.0);
+    final lyrics = controller.lyricsStateForTrack(track);
 
-    return GlassPanel(
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 12),
-      borderRadius: BorderRadius.circular(28),
-      tintColors: [
-        LiquidPalette.surfaceSoft.withValues(alpha: 0.76),
-        LiquidPalette.surface.withValues(alpha: 0.92),
-      ],
-      withShadow: false,
-      child: Column(
-        children: [
-          SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              activeTrackColor: LiquidPalette.aqua,
-              inactiveTrackColor: Colors.white.withValues(alpha: 0.12),
-              thumbColor: LiquidPalette.softWhite,
-              overlayColor: LiquidPalette.aqua.withValues(alpha: 0.18),
-            ),
-            child: Slider(
-              value: progress,
-              onChanged: (value) => controller.seekToFraction(value),
-            ),
-          ),
-          Row(
-            children: [
-              Text(
-                formatDuration(controller.position),
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Colors.white.withValues(alpha: 0.66),
-                ),
-              ),
-              const Spacer(),
-              Text(
-                formatDuration(track.duration),
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Colors.white.withValues(alpha: 0.66),
-                ),
-              ),
+    if (lyrics.status == LyricsStatus.idle) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        controller.loadLyricsForTrack(track);
+      });
+    }
+
+    return SectionCard(
+      title: 'Lyrics',
+      subtitle:
+          'Graceful offline fallback keeps playback independent of metadata.',
+      child: switch (lyrics.status) {
+        LyricsStatus.loading => const Text('Loading synced lyrics…'),
+        LyricsStatus.available => Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (final line in lyrics.lines) ...[
+              Text(line, style: Theme.of(context).textTheme.bodyLarge),
+              const SizedBox(height: 10),
             ],
+          ],
+        ),
+        LyricsStatus.unavailable => Text(
+          'No synced lyric lines are available for this track yet.',
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: Colors.white.withValues(alpha: 0.68),
           ),
+        ),
+        LyricsStatus.error => Text(
+          lyrics.errorMessage ?? 'Lyrics could not be loaded.',
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: Colors.white.withValues(alpha: 0.68),
+          ),
+        ),
+        LyricsStatus.idle => Text(
+          'Lyrics are ready to load.',
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: Colors.white.withValues(alpha: 0.68),
+          ),
+        ),
+      },
+    );
+  }
+}
+
+class _CreditsSection extends StatelessWidget {
+  const _CreditsSection({required this.track});
+
+  final Track track;
+
+  @override
+  Widget build(BuildContext context) {
+    return SectionCard(
+      title: 'Credits & Metadata',
+      child: Wrap(
+        spacing: 10,
+        runSpacing: 10,
+        children: [
+          GlassPill(label: track.artist),
+          GlassPill(label: track.album),
+          if (track.genre case final genre?) GlassPill(label: genre),
+          if (track.year case final year?) GlassPill(label: '$year'),
+          if (track.bitrate case final bitrate?)
+            GlassPill(label: '${bitrate}kbps'),
+          for (final credit in track.credits) GlassPill(label: credit),
         ],
       ),
     );
   }
 }
 
-class _TransportControls extends StatelessWidget {
-  const _TransportControls({required this.track, required this.collection});
+class _SimilarSection extends StatelessWidget {
+  const _SimilarSection({required this.track});
 
   final Track track;
-  final MusicCollection? collection;
 
   @override
   Widget build(BuildContext context) {
     final controller = ChiMusicScope.watch(context);
+    final similar = controller.similarTracksFor(track);
 
-    return Wrap(
-      alignment: WrapAlignment.center,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      spacing: 14,
-      runSpacing: 14,
-      children: [
-        GlassIconButton(
-          icon: controller.isTrackLiked(track.id)
-              ? Icons.favorite_rounded
-              : Icons.favorite_border_rounded,
-          onTap: () => controller.toggleLikedTrack(track.id),
-          selected: controller.isTrackLiked(track.id),
-          size: 54,
-          iconSize: 24,
-        ),
-        GlassIconButton(
-          icon: Icons.skip_previous_rounded,
-          onTap: () => controller.skipPrevious(),
-          size: 60,
-          iconSize: 30,
-        ),
-        GlassIconButton(
-          icon: controller.isPlaying
-              ? Icons.pause_rounded
-              : Icons.play_arrow_rounded,
-          onTap: () => controller.togglePlayPause(),
-          selected: true,
-          size: 76,
-          iconSize: 40,
-        ),
-        GlassIconButton(
-          icon: Icons.skip_next_rounded,
-          onTap: () => controller.skipNext(),
-          size: 60,
-          iconSize: 30,
-        ),
-        if (collection != null)
-          GlassIconButton(
-            icon: Icons.queue_music_rounded,
-            onTap: () => Navigator.of(
-              context,
-            ).push(CollectionDetailPage.route(collection!)),
-            size: 54,
-            iconSize: 24,
-          ),
-      ],
+    return SectionCard(
+      title: 'Similar Recommendations',
+      subtitle:
+          'Matches are generated from artist overlap, enriched genre, likes, and recent behavior.',
+      child: similar.isEmpty
+          ? Text(
+              'Import or play more music to grow the similarity graph.',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Colors.white.withValues(alpha: 0.68),
+              ),
+            )
+          : Column(
+              children: [
+                for (var index = 0; index < similar.length; index++) ...[
+                  TrackRow(
+                    track: similar[index],
+                    onTap: () {
+                      controller.playTrack(
+                        similar[index],
+                        collection: controller.collectionForTrack(
+                          similar[index],
+                        ),
+                      );
+                    },
+                    trailing: GlassPill(
+                      label: controller.recommendationReasonForTrack(
+                        similar[index],
+                      ),
+                    ),
+                  ),
+                  if (index != similar.length - 1) const SizedBox(height: 12),
+                ],
+              ],
+            ),
+    );
+  }
+}
+
+class _QueueSection extends StatelessWidget {
+  const _QueueSection({required this.track});
+
+  final Track track;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = ChiMusicScope.watch(context);
+    final queue = controller.queue;
+
+    return SectionCard(
+      title: 'Queue',
+      subtitle:
+          'See the full playback order and jump anywhere without leaving the player.',
+      child: Column(
+        children: [
+          for (var index = 0; index < queue.length; index++) ...[
+            TrackRow(
+              track: queue[index],
+              onTap: () {
+                controller.playTrack(
+                  queue[index],
+                  collection: controller.currentCollection,
+                );
+              },
+              trailing: GlassPill(
+                label: queue[index].id == track.id
+                    ? 'Current'
+                    : '#${index + 1}',
+                selected: queue[index].id == track.id,
+              ),
+            ),
+            if (index != queue.length - 1) const SizedBox(height: 12),
+          ],
+        ],
+      ),
     );
   }
 }

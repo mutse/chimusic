@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../data/music_session_store.dart';
@@ -15,7 +17,8 @@ class ChiMusicRoot extends StatefulWidget {
   State<ChiMusicRoot> createState() => _ChiMusicRootState();
 }
 
-class _ChiMusicRootState extends State<ChiMusicRoot> {
+class _ChiMusicRootState extends State<ChiMusicRoot>
+    with WidgetsBindingObserver {
   late final MusicAppController _controller;
   late final bool _ownsController;
   late final Future<void>? _restoreFuture;
@@ -23,15 +26,31 @@ class _ChiMusicRootState extends State<ChiMusicRoot> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _ownsController = widget.controller == null;
     _controller =
         widget.controller ??
         MusicAppController(sessionStore: SharedPreferencesMusicSessionStore());
-    _restoreFuture = _ownsController ? _controller.restoreSession() : null;
+    _restoreFuture = _controller.restoreSession();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.paused:
+      case AppLifecycleState.detached:
+        unawaited(_controller.flushSession());
+        break;
+      case AppLifecycleState.resumed:
+        break;
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     if (_ownsController) {
       _controller.dispose();
     }

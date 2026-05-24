@@ -1,10 +1,16 @@
+import 'dart:async';
+
 import 'package:chimusic/data/music_session_store.dart';
 import 'package:chimusic/models/music_models.dart';
 import 'package:chimusic/state/chimusic_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  SharedPreferences.setMockInitialValues(<String, Object>{});
+
   group('MusicAppController', () {
     test(
       'search ranking favors title prefix matches and stores recent searches',
@@ -279,6 +285,70 @@ void main() {
       },
     );
 
+    test('playback history stores resume position and play counts', () async {
+      final track = _track(
+        folderPath: '/music/history',
+        title: 'Replay',
+        artist: 'North Coast',
+        album: 'Sea Glass',
+        duration: const Duration(minutes: 4),
+        importedAt: DateTime(2026, 5, 6, 16),
+      );
+      final controller = MusicAppController(
+        enableAudio: false,
+        initialTracks: [track],
+      );
+      addTearDown(controller.dispose);
+
+      await controller.playImportedTracks();
+      await controller.seekToFraction(0.25);
+
+      final entry = controller.playbackHistoryEntryForTrack(track.id);
+      expect(controller.playbackHistoryTracks.single.id, track.id);
+      expect(entry, isNotNull);
+      expect(entry!.playCount, 1);
+      expect(entry.lastPosition, const Duration(minutes: 1));
+    });
+
+    test('restoreSession rehydrates saved playback history details', () async {
+      final track = _track(
+        folderPath: '/music/history',
+        title: 'Replay',
+        artist: 'North Coast',
+        album: 'Sea Glass',
+        duration: const Duration(minutes: 4),
+        importedAt: DateTime(2026, 5, 6, 16),
+      );
+      final entry = PlaybackHistoryEntry(
+        trackId: track.id,
+        lastPlayedAt: DateTime(2026, 5, 7, 10),
+        lastPosition: const Duration(minutes: 2, seconds: 5),
+        playCount: 3,
+      );
+      final store = _FakeSessionStore(
+        snapshot: MusicSessionSnapshot(
+          tracks: [track],
+          playbackHistory: [entry],
+          recentTrackIds: [track.id],
+        ),
+      );
+      final controller = MusicAppController(
+        enableAudio: false,
+        sessionStore: store,
+      );
+      addTearDown(controller.dispose);
+
+      await controller.restoreSession();
+
+      final restoredEntry = controller.playbackHistoryEntryForTrack(track.id);
+      expect(controller.playbackHistoryCount, 1);
+      expect(controller.totalPlayCount, 3);
+      expect(controller.recentPlayedTracks.single.id, track.id);
+      expect(restoredEntry, isNotNull);
+      expect(restoredEntry!.lastPosition, entry.lastPosition);
+      expect(restoredEntry.playCount, entry.playCount);
+    });
+
     test(
       'state changes persist through the configured session store',
       () async {
@@ -343,8 +413,77 @@ void main() {
         expect(snapshot.currentTrackId, track.id);
         expect(snapshot.currentCollectionId, 'all_tracks');
         expect(snapshot.positionMs, 120000);
+        expect(snapshot.playbackHistory.single.trackId, track.id);
+        expect(
+          snapshot.playbackHistory.single.lastPosition,
+          const Duration(minutes: 2),
+        );
       },
     );
+
+    test('flushSession waits for pending persistence to finish', () async {
+      final track = _track(
+        folderPath: '/music/ocean',
+        title: 'Blue Horizon',
+        artist: 'North Coast',
+        album: 'Sea Glass',
+        duration: const Duration(minutes: 4),
+        importedAt: DateTime(2026, 5, 6, 15),
+      );
+      final store = _BlockingSessionStore();
+      final controller = MusicAppController(
+        enableAudio: false,
+        sessionStore: store,
+        initialTracks: [track],
+      );
+      addTearDown(controller.dispose);
+
+      controller.toggleLikedTrack(track.id);
+      await store.firstSaveStarted.future;
+
+      var completed = false;
+      final flushFuture = controller.flushSession().then((_) {
+        completed = true;
+      });
+      await Future<void>.delayed(Duration.zero);
+
+      expect(completed, isFalse);
+
+      store.release();
+      await flushFuture;
+
+      expect(store.saveCallCount, 2);
+      expect(store.lastSaved?.likedTrackIds, {track.id});
+    });
+
+    test('dispose triggers one final session flush', () async {
+      final track = _track(
+        folderPath: '/music/ocean',
+        title: 'Blue Horizon',
+        artist: 'North Coast',
+        album: 'Sea Glass',
+        duration: const Duration(minutes: 4),
+        importedAt: DateTime(2026, 5, 6, 15),
+      );
+      final store = _BlockingSessionStore();
+      final controller = MusicAppController(
+        enableAudio: false,
+        sessionStore: store,
+        initialTracks: [track],
+      );
+
+      controller.toggleLikedTrack(track.id);
+      await store.firstSaveStarted.future;
+
+      controller.dispose();
+      await Future<void>.delayed(Duration.zero);
+
+      store.release();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(store.saveCallCount, 2);
+      expect(store.lastSaved?.likedTrackIds, {track.id});
+    });
 
     test(
       'removeCollectionFromLibrary removes only that collection from the session',
@@ -425,6 +564,135 @@ void main() {
         );
       },
     );
+
+    test(
+      'clearPlaybackHistory removes saved history but keeps the library',
+      () {
+        final track = _track(
+          folderPath: '/music/history',
+          title: 'Replay',
+          artist: 'North Coast',
+          album: 'Sea Glass',
+          duration: const Duration(minutes: 4),
+          importedAt: DateTime(2026, 5, 6, 16),
+        );
+        final controller = MusicAppController(
+          enableAudio: false,
+          initialTracks: [track],
+          initialPlaybackHistory: [
+            PlaybackHistoryEntry(
+              trackId: track.id,
+              lastPlayedAt: DateTime(2026, 5, 7, 10),
+              lastPosition: const Duration(minutes: 1),
+              playCount: 2,
+            ),
+          ],
+          initialRecentTrackIds: [track.id],
+        );
+        addTearDown(controller.dispose);
+
+        controller.clearPlaybackHistory();
+
+        expect(controller.importedTrackCount, 1);
+        expect(controller.playbackHistoryCount, 0);
+        expect(controller.totalPlayCount, 0);
+        expect(controller.recentPlayedTracks, isEmpty);
+      },
+    );
+
+    test(
+      'ai search uses free trials and surfaces intent-based matches',
+      () async {
+        final favoriteTrack = _track(
+          folderPath: '/music/midnight',
+          title: 'Night Drive',
+          artist: 'Signal Bloom',
+          album: 'After Hours',
+          duration: const Duration(minutes: 4, seconds: 10),
+          importedAt: DateTime(2026, 5, 6, 21),
+        );
+        final otherTrack = _track(
+          folderPath: '/music/daylight',
+          title: 'Morning Tape',
+          artist: 'Signal Bloom',
+          album: 'Daylight',
+          duration: const Duration(minutes: 3, seconds: 18),
+          importedAt: DateTime(2026, 5, 6, 9),
+        );
+        final controller = MusicAppController(
+          enableAudio: false,
+          initialTracks: [favoriteTrack, otherTrack],
+          initialLikedTrackIds: {favoriteTrack.id},
+        );
+        addTearDown(controller.dispose);
+
+        controller.setSearchMode(SearchMode.ai);
+        controller.updateSearchQuery('favorite');
+        await controller.runAiSearch();
+
+        expect(controller.aiSearchResults.first.id, favoriteTrack.id);
+        expect(controller.aiSearchTrialsRemaining, 1);
+        expect(controller.shouldShowAiUpsell, isTrue);
+      },
+    );
+
+    test('upgradeToPro unlocks unlimited AI access', () async {
+      final controller = MusicAppController(enableAudio: false);
+      addTearDown(controller.dispose);
+
+      await controller.upgradeToPro();
+
+      expect(controller.isSignedIn, isTrue);
+      expect(controller.hasPro, isTrue);
+      expect(controller.membershipTier, MembershipTier.pro);
+      expect(controller.canUseAiSearch, isTrue);
+    });
+
+    test(
+      'albums filter exposes album collections generated from local files',
+      () {
+        final firstAlbumTrack = _track(
+          folderPath: '/music/coast',
+          title: 'Blue Horizon',
+          artist: 'North Coast',
+          album: 'Sea Glass',
+          duration: const Duration(minutes: 4),
+          importedAt: DateTime(2026, 5, 6, 10),
+        );
+        final secondAlbumTrack = _track(
+          folderPath: '/music/coast',
+          title: 'Signals',
+          artist: 'North Coast',
+          album: 'Sea Glass',
+          duration: const Duration(minutes: 3, seconds: 12),
+          importedAt: DateTime(2026, 5, 6, 11),
+        );
+        final otherAlbumTrack = _track(
+          folderPath: '/music/city',
+          title: 'Late Metro',
+          artist: 'Night Ferry',
+          album: 'City Lines',
+          duration: const Duration(minutes: 4, seconds: 2),
+          importedAt: DateTime(2026, 5, 6, 12),
+        );
+        final controller = MusicAppController(
+          enableAudio: false,
+          initialTracks: [firstAlbumTrack, secondAlbumTrack, otherAlbumTrack],
+        );
+        addTearDown(controller.dispose);
+
+        controller.openLibraryFilter(LibraryFilter.albums);
+
+        expect(controller.filteredLibraryCollections.length, 2);
+        expect(
+          controller.filteredLibraryCollections.map(
+            (collection) => collection.title,
+          ),
+          containsAll(<String>['Sea Glass', 'City Lines']),
+        );
+        expect(controller.albumCount, 2);
+      },
+    );
   });
 }
 
@@ -465,5 +733,31 @@ class _FakeSessionStore implements MusicSessionStore {
   @override
   Future<void> save(MusicSessionSnapshot snapshot) async {
     lastSaved = snapshot;
+  }
+}
+
+class _BlockingSessionStore implements MusicSessionStore {
+  final Completer<void> firstSaveStarted = Completer<void>();
+  final Completer<void> _release = Completer<void>();
+  MusicSessionSnapshot? lastSaved;
+  int saveCallCount = 0;
+
+  @override
+  Future<MusicSessionSnapshot> load() async => const MusicSessionSnapshot();
+
+  @override
+  Future<void> save(MusicSessionSnapshot snapshot) async {
+    saveCallCount += 1;
+    lastSaved = snapshot;
+    if (!firstSaveStarted.isCompleted) {
+      firstSaveStarted.complete();
+    }
+    await _release.future;
+  }
+
+  void release() {
+    if (!_release.isCompleted) {
+      _release.complete();
+    }
   }
 }

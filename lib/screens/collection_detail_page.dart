@@ -260,23 +260,27 @@ class _CollectionHero extends StatelessWidget {
                 size: 56,
                 iconSize: 22,
               ),
-              const SizedBox(width: 12),
-              GlassIconButton(
-                icon: Icons.delete_outline_rounded,
-                onTap: () async {
-                  final shouldRemove = await _confirmRemoveCollection(context);
-                  if (shouldRemove != true) {
-                    return;
-                  }
+              if (collection.kind == MusicCollectionKind.folder) ...[
+                const SizedBox(width: 12),
+                GlassIconButton(
+                  icon: Icons.delete_outline_rounded,
+                  onTap: () async {
+                    final shouldRemove = await _confirmRemoveCollection(
+                      context,
+                    );
+                    if (shouldRemove != true) {
+                      return;
+                    }
 
-                  await controller.removeCollectionFromLibrary(collection.id);
-                  if (context.mounted) {
-                    Navigator.of(context).pop();
-                  }
-                },
-                size: 56,
-                iconSize: 22,
-              ),
+                    await controller.removeCollectionFromLibrary(collection.id);
+                    if (context.mounted) {
+                      Navigator.of(context).pop();
+                    }
+                  },
+                  size: 56,
+                  iconSize: 22,
+                ),
+              ],
             ],
           ),
         ],
@@ -335,6 +339,19 @@ class _HeroCopy extends StatelessWidget {
             color: Colors.white.withValues(alpha: 0.70),
           ),
         ),
+        if (collection.reason case final reason?) ...[
+          const SizedBox(height: 14),
+          GlassPill(label: reason),
+        ],
+        if (collection.prompt case final prompt?) ...[
+          const SizedBox(height: 10),
+          Text(
+            prompt,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Colors.white.withValues(alpha: 0.62),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -413,7 +430,9 @@ class _CollectionInsights extends StatelessWidget {
               ),
               const SizedBox(height: 10),
               Text(
-                'This detail page is tied to your live local library. Save it, play it as one queue, or bounce back into Search with the collection title prefilled.',
+                collection.kind == MusicCollectionKind.smartPlaylist
+                    ? 'This smart playlist is generated from your local library signals. Save it, play it as one queue, or jump into AI Search with the title prefilled.'
+                    : 'This detail page is tied to your live local library. Save it, play it as one queue, or bounce back into Search with the collection title prefilled.',
                 style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                   color: Colors.white.withValues(alpha: 0.68),
                 ),
