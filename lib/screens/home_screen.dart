@@ -54,7 +54,6 @@ class _HomeHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final greeting = _buildGreeting();
-    final wide = isWideWidth(context);
 
     return GlassPanel(
       padding: const EdgeInsets.all(20),
