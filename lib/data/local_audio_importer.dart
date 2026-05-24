@@ -1,5 +1,7 @@
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as path;
@@ -21,6 +23,28 @@ const XTypeGroup localAudioTypeGroup = XTypeGroup(
   extensions: supportedAudioExtensions,
   uniformTypeIdentifiers: <String>['public.audio'],
 );
+
+typedef AudioMetadataLoader =
+    AudioMetadata Function(File file, {bool getImage});
+
+class LocalImportSelection {
+  const LocalImportSelection({
+    required this.path,
+    this.bookmarkBase64,
+    this.platform,
+  });
+
+  final String path;
+  final String? bookmarkBase64;
+  final String? platform;
+}
+
+class ImportedTrackPayload {
+  const ImportedTrackPayload({required this.track, required this.source});
+
+  final Track track;
+  final TrackSourceRecord source;
+}
 
 bool isSupportedAudioPath(String filePath) {
   final extension = path
@@ -53,6 +77,159 @@ Track buildTrackFromPath(String filePath, {DateTime? importedAt}) {
     palette: buildTrackPalette(normalizedPath),
     importedAt: importedAt ?? DateTime.now(),
     fileExtension: fileExtension,
+    availability: TrackAvailability.available,
+    lastValidatedAt: importedAt ?? DateTime.now(),
+  );
+}
+
+Future<ImportedTrackPayload?> buildImportedTrackFromSelection(
+  LocalImportSelection selection, {
+  required String artworkCacheDirectory,
+  DateTime? importedAt,
+  AudioMetadataLoader metadataLoader = readMetadata,
+}) async {
+  if (!isSupportedAudioPath(selection.path)) {
+    return null;
+  }
+
+  final fallbackTrack = buildTrackFromPath(
+    selection.path,
+    importedAt: importedAt,
+  );
+  final importedTimestamp = importedAt ?? DateTime.now();
+  final audioFile = File(selection.path);
+
+  try {
+    if (!await audioFile.exists()) {
+      return ImportedTrackPayload(
+        track: fallbackTrack.copyWith(
+          availability: TrackAvailability.unavailable,
+          lastValidatedAt: importedTimestamp,
+        ),
+        source: TrackSourceRecord(
+          trackId: fallbackTrack.id,
+          platform: selection.platform ?? _defaultPlatformLabel(),
+          locator: selection.path,
+          bookmarkBase64: selection.bookmarkBase64,
+        ),
+      );
+    }
+
+    final metadata = metadataLoader(audioFile, getImage: true);
+    final artworkUri = await _writeArtworkIfPresent(
+      trackId: fallbackTrack.id,
+      pictures: metadata.pictures,
+      artworkCacheDirectory: artworkCacheDirectory,
+    );
+
+    final track = fallbackTrack.copyWith(
+      title: _nonEmptyOr(metadata.title, fallbackTrack.title),
+      artist: _nonEmptyOr(metadata.artist, fallbackTrack.artist),
+      album: _nonEmptyOr(metadata.album, fallbackTrack.album),
+      albumArtist: _nonEmptyOr(
+        metadata.performers.isEmpty ? null : metadata.performers.first,
+        metadata.artist,
+      ),
+      duration: metadata.duration,
+      fileExtension: fallbackTrack.fileExtension,
+      artworkUri: artworkUri,
+      clearArtworkUri: artworkUri == null,
+      genre: metadata.genres.isEmpty ? null : metadata.genres.first,
+      clearGenre: metadata.genres.isEmpty,
+      year: metadata.year?.year,
+      clearYear: metadata.year == null,
+      bitrate: metadata.bitrate,
+      clearBitrate: metadata.bitrate == null,
+      trackNumber: metadata.trackNumber,
+      clearTrackNumber: metadata.trackNumber == null,
+      discNumber: metadata.discNumber,
+      clearDiscNumber: metadata.discNumber == null,
+      availability: TrackAvailability.available,
+      lastValidatedAt: importedTimestamp,
+    );
+
+    return ImportedTrackPayload(
+      track: track,
+      source: TrackSourceRecord(
+        trackId: track.id,
+        platform: selection.platform ?? _defaultPlatformLabel(),
+        locator: selection.path,
+        bookmarkBase64: selection.bookmarkBase64,
+      ),
+    );
+  } catch (_) {
+    return ImportedTrackPayload(
+      track: fallbackTrack.copyWith(
+        availability: TrackAvailability.available,
+        lastValidatedAt: importedTimestamp,
+      ),
+      source: TrackSourceRecord(
+        trackId: fallbackTrack.id,
+        platform: selection.platform ?? _defaultPlatformLabel(),
+        locator: selection.path,
+        bookmarkBase64: selection.bookmarkBase64,
+      ),
+    );
+  }
+}
+
+Track mergeImportedTrackWithExistingTrack({
+  required Track existing,
+  required Track imported,
+}) {
+  final fallback = buildTrackFromPath(
+    existing.filePath,
+    importedAt: existing.importedAt,
+  );
+
+  String chooseResolvedName({
+    required String current,
+    required String fallbackValue,
+    required String importedValue,
+  }) {
+    if (current.trim().isEmpty) {
+      return importedValue;
+    }
+    if (current == fallbackValue && importedValue != fallbackValue) {
+      return importedValue;
+    }
+    return current;
+  }
+
+  return existing.copyWith(
+    filePath: imported.filePath,
+    fileName: imported.fileName,
+    folderPath: imported.folderPath,
+    title: chooseResolvedName(
+      current: existing.title,
+      fallbackValue: fallback.title,
+      importedValue: imported.title,
+    ),
+    artist: chooseResolvedName(
+      current: existing.artist,
+      fallbackValue: fallback.artist,
+      importedValue: imported.artist,
+    ),
+    album: chooseResolvedName(
+      current: existing.album,
+      fallbackValue: fallback.album,
+      importedValue: imported.album,
+    ),
+    duration: existing.duration ?? imported.duration,
+    fileExtension:
+        (existing.fileExtension == null || existing.fileExtension!.isEmpty)
+        ? imported.fileExtension
+        : existing.fileExtension,
+    artworkUri: existing.artworkUri ?? imported.artworkUri,
+    albumArtist: _preferText(existing.albumArtist, imported.albumArtist),
+    genre: _preferText(existing.genre, imported.genre),
+    year: existing.year ?? imported.year,
+    bitrate: existing.bitrate ?? imported.bitrate,
+    trackNumber: existing.trackNumber ?? imported.trackNumber,
+    discNumber: existing.discNumber ?? imported.discNumber,
+    availability: imported.availability,
+    lastValidatedAt: imported.lastValidatedAt ?? existing.lastValidatedAt,
+    credits: existing.credits.isNotEmpty ? existing.credits : imported.credits,
   );
 }
 
@@ -130,4 +307,95 @@ String _sanitizeName(String value) {
       .replaceAll(RegExp(r'[_]+'), ' ')
       .replaceAll(RegExp(r'\s+'), ' ');
   return collapsed.trim().isEmpty ? 'Untitled' : collapsed.trim();
+}
+
+Future<String?> _writeArtworkIfPresent({
+  required String trackId,
+  required List<Picture> pictures,
+  required String artworkCacheDirectory,
+}) async {
+  if (pictures.isEmpty) {
+    return null;
+  }
+
+  final picture = _selectBestPicture(pictures);
+  if (picture == null || picture.bytes.isEmpty) {
+    return null;
+  }
+
+  final extension = _extensionForMimetype(picture.mimetype);
+  final directory = Directory(artworkCacheDirectory);
+  if (!await directory.exists()) {
+    await directory.create(recursive: true);
+  }
+
+  final artworkPath = path.join(
+    artworkCacheDirectory,
+    '${_stableSeed(trackId)}.$extension',
+  );
+  await File(
+    artworkPath,
+  ).writeAsBytes(Uint8List.fromList(picture.bytes), flush: true);
+  return artworkPath;
+}
+
+Picture? _selectBestPicture(List<Picture> pictures) {
+  for (final picture in pictures) {
+    if (picture.pictureType == PictureType.coverFront) {
+      return picture;
+    }
+  }
+
+  return pictures.first;
+}
+
+String _extensionForMimetype(String mimetype) {
+  final lowered = mimetype.toLowerCase();
+  if (lowered.contains('png')) {
+    return 'png';
+  }
+  if (lowered.contains('webp')) {
+    return 'webp';
+  }
+  if (lowered.contains('gif')) {
+    return 'gif';
+  }
+  return 'jpg';
+}
+
+String _defaultPlatformLabel() {
+  if (Platform.isIOS) {
+    return 'ios';
+  }
+  if (Platform.isMacOS) {
+    return 'macos';
+  }
+  if (Platform.isAndroid) {
+    return 'android';
+  }
+  return 'local';
+}
+
+String _stableSeed(String value) {
+  final hash = value.codeUnits.fold<int>(
+    0,
+    (current, unit) => (current * 31 + unit) & 0x7fffffff,
+  );
+  return hash.toRadixString(16);
+}
+
+String? _nonEmptyOr(String? candidate, String? fallback) {
+  final normalized = candidate?.trim();
+  if (normalized == null || normalized.isEmpty) {
+    return fallback;
+  }
+  return normalized;
+}
+
+String? _preferText(String? current, String? imported) {
+  final normalizedCurrent = current?.trim();
+  if (normalizedCurrent != null && normalizedCurrent.isNotEmpty) {
+    return normalizedCurrent;
+  }
+  return _nonEmptyOr(imported, null);
 }

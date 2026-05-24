@@ -18,11 +18,20 @@ class AppShell extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = ChiMusicScope.watch(context);
     final desktop = isDesktopWidth(context);
+    final currentTrack = controller.currentTrack;
 
     return Scaffold(
       extendBody: true,
       backgroundColor: Colors.transparent,
       body: LiquidBackdrop(
+        palette:
+            currentTrack?.palette ??
+            const <Color>[
+              LiquidPalette.aqua,
+              LiquidPalette.deepCyan,
+              LiquidPalette.surface,
+            ],
+        artworkUri: currentTrack?.artworkUri,
         child: SafeArea(
           child: Stack(
             children: [
@@ -295,6 +304,7 @@ class _SidebarCollectionLink extends StatelessWidget {
           ArtworkCover(
             title: collection.title,
             palette: collection.palette,
+            artworkUri: collection.artworkUri,
             size: 44,
             borderRadius: BorderRadius.circular(14),
             icon: Icons.folder_rounded,
@@ -396,6 +406,7 @@ class _RightDock extends StatelessWidget {
                     ArtworkCover(
                       title: collection?.title ?? track.album,
                       palette: collection?.palette ?? track.palette,
+                      artworkUri: collection?.artworkUri ?? track.artworkUri,
                       size: 82,
                       showTitle: true,
                       icon: collection?.kind == MusicCollectionKind.folder
@@ -554,6 +565,7 @@ class _CurrentTrackCard extends StatelessWidget {
             ArtworkCover(
               title: track.album,
               palette: track.palette,
+              artworkUri: track.artworkUri,
               size: 82,
               showTitle: true,
               icon: Icons.music_note_rounded,
@@ -649,6 +661,7 @@ class _QueueRow extends StatelessWidget {
           ArtworkCover(
             title: track.album,
             palette: track.palette,
+            artworkUri: track.artworkUri,
             size: 48,
             borderRadius: BorderRadius.circular(14),
             icon: Icons.music_note_rounded,
@@ -773,16 +786,14 @@ class _MiniPlayerBar extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(999),
-            child: LinearProgressIndicator(
-              value: controller.playbackProgress.clamp(0.0, 1.0),
-              minHeight: 4,
-              backgroundColor: Colors.white.withValues(alpha: 0.10),
-              valueColor: AlwaysStoppedAnimation<Color>(
-                track.palette.first.withValues(alpha: 0.94),
-              ),
-            ),
+          WaveformProgressBar(
+            progress: controller.playbackProgress,
+            palette: track.palette,
+            waveform: controller.waveformForTrack(track),
+            height: 36,
+            onSeek: (value) {
+              controller.seekToFraction(value);
+            },
           ),
           const SizedBox(height: 10),
           Row(
@@ -799,6 +810,7 @@ class _MiniPlayerBar extends StatelessWidget {
                         ArtworkCover(
                           title: track.album,
                           palette: track.palette,
+                          artworkUri: track.artworkUri,
                           size: 52,
                           borderRadius: BorderRadius.circular(16),
                           icon: Icons.music_note_rounded,

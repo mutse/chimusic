@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../data/music_repository.dart';
 import '../data/music_session_store.dart';
 import '../state/chimusic_controller.dart';
 import '../state/chimusic_scope.dart';
@@ -30,7 +31,11 @@ class _ChiMusicRootState extends State<ChiMusicRoot>
     _ownsController = widget.controller == null;
     _controller =
         widget.controller ??
-        MusicAppController(sessionStore: SharedPreferencesMusicSessionStore());
+        MusicAppController(
+          repository: SqliteMusicRepository(
+            legacySessionStore: SharedPreferencesMusicSessionStore(),
+          ),
+        );
     _restoreFuture = _controller.restoreSession();
   }
 

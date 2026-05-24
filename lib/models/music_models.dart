@@ -88,6 +88,15 @@ extension CloudMatchStatusX on CloudMatchStatus {
   };
 }
 
+enum TrackAvailability { available, unavailable }
+
+extension TrackAvailabilityX on TrackAvailability {
+  String get label => switch (this) {
+    TrackAvailability.available => 'Available',
+    TrackAvailability.unavailable => 'Unavailable',
+  };
+}
+
 enum LyricsAvailability { unavailable, available }
 
 enum LyricsStatus { idle, loading, available, unavailable, error }
@@ -109,10 +118,16 @@ class Track {
     this.fileExtension,
     this.artworkUri,
     this.lyricsAvailability = LyricsAvailability.unavailable,
+    this.albumArtist,
     this.genre,
     this.year,
     this.bitrate,
+    this.trackNumber,
+    this.discNumber,
     this.fingerprint,
+    this.waveformUri,
+    this.availability = TrackAvailability.available,
+    this.lastValidatedAt,
     this.cloudMatchStatus = CloudMatchStatus.localOnly,
     this.lastSyncedAt,
     this.credits = const <String>[],
@@ -131,10 +146,16 @@ class Track {
   final String? fileExtension;
   final String? artworkUri;
   final LyricsAvailability lyricsAvailability;
+  final String? albumArtist;
   final String? genre;
   final int? year;
   final int? bitrate;
+  final int? trackNumber;
+  final int? discNumber;
   final String? fingerprint;
+  final String? waveformUri;
+  final TrackAvailability availability;
+  final DateTime? lastValidatedAt;
   final CloudMatchStatus cloudMatchStatus;
   final DateTime? lastSyncedAt;
   final List<String> credits;
@@ -142,6 +163,8 @@ class Track {
   String get typeLabel => (fileExtension == null || fileExtension!.isEmpty)
       ? 'Local Audio'
       : fileExtension!.toUpperCase();
+
+  bool get isAvailable => availability == TrackAvailability.available;
 
   Track copyWith({
     String? id,
@@ -159,14 +182,25 @@ class Track {
     String? artworkUri,
     bool clearArtworkUri = false,
     LyricsAvailability? lyricsAvailability,
+    String? albumArtist,
+    bool clearAlbumArtist = false,
     String? genre,
     bool clearGenre = false,
     int? year,
     bool clearYear = false,
     int? bitrate,
     bool clearBitrate = false,
+    int? trackNumber,
+    bool clearTrackNumber = false,
+    int? discNumber,
+    bool clearDiscNumber = false,
     String? fingerprint,
     bool clearFingerprint = false,
+    String? waveformUri,
+    bool clearWaveformUri = false,
+    TrackAvailability? availability,
+    DateTime? lastValidatedAt,
+    bool clearLastValidatedAt = false,
     CloudMatchStatus? cloudMatchStatus,
     DateTime? lastSyncedAt,
     bool clearLastSyncedAt = false,
@@ -186,10 +220,18 @@ class Track {
       fileExtension: fileExtension ?? this.fileExtension,
       artworkUri: clearArtworkUri ? null : artworkUri ?? this.artworkUri,
       lyricsAvailability: lyricsAvailability ?? this.lyricsAvailability,
+      albumArtist: clearAlbumArtist ? null : albumArtist ?? this.albumArtist,
       genre: clearGenre ? null : genre ?? this.genre,
       year: clearYear ? null : year ?? this.year,
       bitrate: clearBitrate ? null : bitrate ?? this.bitrate,
+      trackNumber: clearTrackNumber ? null : trackNumber ?? this.trackNumber,
+      discNumber: clearDiscNumber ? null : discNumber ?? this.discNumber,
       fingerprint: clearFingerprint ? null : fingerprint ?? this.fingerprint,
+      waveformUri: clearWaveformUri ? null : waveformUri ?? this.waveformUri,
+      availability: availability ?? this.availability,
+      lastValidatedAt: clearLastValidatedAt
+          ? null
+          : lastValidatedAt ?? this.lastValidatedAt,
       cloudMatchStatus: cloudMatchStatus ?? this.cloudMatchStatus,
       lastSyncedAt: clearLastSyncedAt
           ? null
@@ -501,24 +543,154 @@ class PlaybackHistoryEntry {
     required this.lastPlayedAt,
     this.lastPosition = Duration.zero,
     this.playCount = 1,
+    this.totalListened = Duration.zero,
   });
 
   final String trackId;
   final DateTime lastPlayedAt;
   final Duration lastPosition;
   final int playCount;
+  final Duration totalListened;
 
   PlaybackHistoryEntry copyWith({
     String? trackId,
     DateTime? lastPlayedAt,
     Duration? lastPosition,
     int? playCount,
+    Duration? totalListened,
   }) {
     return PlaybackHistoryEntry(
       trackId: trackId ?? this.trackId,
       lastPlayedAt: lastPlayedAt ?? this.lastPlayedAt,
       lastPosition: lastPosition ?? this.lastPosition,
       playCount: playCount ?? this.playCount,
+      totalListened: totalListened ?? this.totalListened,
+    );
+  }
+}
+
+enum PlaybackEndReason { completed, paused, skipped, stopped, replaced }
+
+class PlaybackEvent {
+  const PlaybackEvent({
+    required this.id,
+    required this.trackId,
+    required this.startedAt,
+    this.collectionId,
+    this.endedAt,
+    this.maxPosition = Duration.zero,
+    this.endReason,
+  });
+
+  final String id;
+  final String trackId;
+  final String? collectionId;
+  final DateTime startedAt;
+  final DateTime? endedAt;
+  final Duration maxPosition;
+  final PlaybackEndReason? endReason;
+
+  bool get isOpen => endedAt == null;
+
+  PlaybackEvent copyWith({
+    String? id,
+    String? trackId,
+    String? collectionId,
+    bool clearCollectionId = false,
+    DateTime? startedAt,
+    DateTime? endedAt,
+    bool clearEndedAt = false,
+    Duration? maxPosition,
+    PlaybackEndReason? endReason,
+    bool clearEndReason = false,
+  }) {
+    return PlaybackEvent(
+      id: id ?? this.id,
+      trackId: trackId ?? this.trackId,
+      collectionId: clearCollectionId
+          ? null
+          : collectionId ?? this.collectionId,
+      startedAt: startedAt ?? this.startedAt,
+      endedAt: clearEndedAt ? null : endedAt ?? this.endedAt,
+      maxPosition: maxPosition ?? this.maxPosition,
+      endReason: clearEndReason ? null : endReason ?? this.endReason,
+    );
+  }
+}
+
+class PlaybackSessionState {
+  const PlaybackSessionState({
+    this.queueTrackIds = const <String>[],
+    this.currentTrackId,
+    this.currentCollectionId,
+    this.position = Duration.zero,
+    this.updatedAt,
+  });
+
+  final List<String> queueTrackIds;
+  final String? currentTrackId;
+  final String? currentCollectionId;
+  final Duration position;
+  final DateTime? updatedAt;
+
+  PlaybackSessionState copyWith({
+    List<String>? queueTrackIds,
+    String? currentTrackId,
+    bool clearCurrentTrackId = false,
+    String? currentCollectionId,
+    bool clearCurrentCollectionId = false,
+    Duration? position,
+    DateTime? updatedAt,
+    bool clearUpdatedAt = false,
+  }) {
+    return PlaybackSessionState(
+      queueTrackIds: queueTrackIds ?? this.queueTrackIds,
+      currentTrackId: clearCurrentTrackId
+          ? null
+          : currentTrackId ?? this.currentTrackId,
+      currentCollectionId: clearCurrentCollectionId
+          ? null
+          : currentCollectionId ?? this.currentCollectionId,
+      position: position ?? this.position,
+      updatedAt: clearUpdatedAt ? null : updatedAt ?? this.updatedAt,
+    );
+  }
+}
+
+class TrackSourceRecord {
+  const TrackSourceRecord({
+    required this.trackId,
+    required this.platform,
+    required this.locator,
+    this.bookmarkBase64,
+    this.relativePath,
+  });
+
+  final String trackId;
+  final String platform;
+  final String locator;
+  final String? bookmarkBase64;
+  final String? relativePath;
+
+  TrackSourceRecord copyWith({
+    String? trackId,
+    String? platform,
+    String? locator,
+    String? bookmarkBase64,
+    bool clearBookmarkBase64 = false,
+    String? relativePath,
+    bool clearRelativePath = false,
+  }) {
+    return TrackSourceRecord(
+      trackId: trackId ?? this.trackId,
+      platform: platform ?? this.platform,
+      locator: locator ?? this.locator,
+      bookmarkBase64: clearBookmarkBase64
+          ? null
+          : bookmarkBase64 ?? this.bookmarkBase64,
+      relativePath: clearRelativePath
+          ? null
+          : relativePath ?? this.relativePath,
     );
   }
 }

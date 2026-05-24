@@ -43,22 +43,31 @@ class LibraryScreen extends StatelessWidget {
                             style: Theme.of(context).textTheme.displaySmall,
                           ),
                           const SizedBox(height: 8),
+                          Text(
+                            'Tracks, albums, artists, imports, and persistent playback history all stay on one local surface.',
+                            style: Theme.of(context).textTheme.bodyLarge
+                                ?.copyWith(
+                                  color: Colors.white.withValues(alpha: 0.68),
+                                ),
+                          ),
+                          const SizedBox(height: 12),
                           Wrap(
                             spacing: 10,
                             runSpacing: 10,
                             children: [
                               GlassPill(
                                 label:
-                                    '${controller.savedCollectionCount} saved',
-                              ),
-                              GlassPill(
-                                label: '${controller.likedTracksCount} liked',
+                                    '${controller.importedTrackCount} tracks',
                               ),
                               GlassPill(
                                 label: '${controller.albumCount} albums',
                               ),
                               GlassPill(
-                                label: '${controller.playlistCount} playlists',
+                                label: '${controller.artistCount} artists',
+                              ),
+                              GlassPill(
+                                label:
+                                    '${controller.playbackEvents.length} sessions',
                               ),
                             ],
                           ),
@@ -87,22 +96,14 @@ class LibraryScreen extends StatelessWidget {
                     const SizedBox(width: 18),
                     Expanded(
                       flex: 2,
-                      child: Column(
-                        children: [
-                          _AiStatusCard(controller: controller),
-                          const SizedBox(height: 18),
-                          _SyncStatusCard(controller: controller),
-                        ],
-                      ),
+                      child: _LibraryContextCard(controller: controller),
                     ),
                   ],
                 )
               else ...[
                 _LibrarySummary(controller: controller),
                 const SizedBox(height: 18),
-                _AiStatusCard(controller: controller),
-                const SizedBox(height: 18),
-                _SyncStatusCard(controller: controller),
+                _LibraryContextCard(controller: controller),
               ],
               const SizedBox(height: 18),
               if (controller.statusMessage != null) ...[
@@ -116,184 +117,27 @@ class LibraryScreen extends StatelessWidget {
                 EmptyMusicState(
                   title: 'Your library is empty',
                   body:
-                      'Import audio files or folders to populate albums, artists, playlists, favorites, and playback-ready queues.',
+                      'Import audio files or folders to populate tracks, albums, artists, and persistent resume history.',
                   controller: controller,
                 )
               else ...[
-                SectionCard(
-                  title: 'Filters',
-                  subtitle:
-                      'Switch between tracks, albums, artists, playlists, folders, and favorites without leaving the library.',
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Wrap(
-                        spacing: 10,
-                        runSpacing: 10,
-                        children: [
-                          for (final filter in LibraryFilter.values)
-                            GlassPill(
-                              label: filter.label,
-                              selected: controller.libraryFilter == filter,
-                              onTap: () => controller.setLibraryFilter(filter),
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 14),
-                      Wrap(
-                        spacing: 10,
-                        runSpacing: 10,
-                        children: [
-                          for (final sort in LibrarySort.values)
-                            GlassPill(
-                              label: 'Sort ${sort.label}',
-                              selected: controller.librarySort == sort,
-                              onTap: () => controller.setLibrarySort(sort),
-                            ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                if (controller.pinnedCollections.isNotEmpty) ...[
-                  const SizedBox(height: 30),
-                  SectionCard(
-                    title: 'Quick Access',
-                    subtitle:
-                        'Pinned and frequently useful library entry points stay near the top.',
-                    child: Wrap(
-                      spacing: 14,
-                      runSpacing: 14,
-                      children: [
-                        for (final collection in controller.pinnedCollections)
-                          _QuickCollectionCard(collection: collection),
-                      ],
-                    ),
-                  ),
-                ],
-                if (controller.filteredLibraryCollections.isNotEmpty) ...[
-                  const SizedBox(height: 30),
-                  SectionCard(
-                    title: _libraryCollectionTitle(controller.libraryFilter),
-                    child: Column(
-                      children: [
-                        for (
-                          var index = 0;
-                          index < controller.filteredLibraryCollections.length;
-                          index++
-                        ) ...[
-                          _LibraryCollectionRow(
-                            collection:
-                                controller.filteredLibraryCollections[index],
-                          ),
-                          if (index !=
-                              controller.filteredLibraryCollections.length - 1)
-                            const SizedBox(height: 12),
-                        ],
-                      ],
-                    ),
-                  ),
-                ],
-                if (controller.playbackHistoryTracks.isNotEmpty) ...[
-                  const SizedBox(height: 30),
-                  SectionCard(
-                    title: 'Playback History',
-                    subtitle:
-                        'Every play is saved locally with last position and replay count.',
-                    trailing: GlassPill(
-                      label:
-                          '${controller.playbackHistoryCount} track${controller.playbackHistoryCount == 1 ? '' : 's'}',
-                    ),
-                    child: Column(
-                      children: [
-                        for (
-                          var index = 0;
-                          index < controller.playbackHistoryTracks.length;
-                          index++
-                        ) ...[
-                          TrackRow(
-                            track: controller.playbackHistoryTracks[index],
-                            onTap: () {
-                              controller.playTrack(
-                                controller.playbackHistoryTracks[index],
-                                collection: controller.collectionForTrack(
-                                  controller.playbackHistoryTracks[index],
-                                ),
-                              );
-                            },
-                            trailing: _PlaybackHistoryTrackActions(
-                              track: controller.playbackHistoryTracks[index],
-                            ),
-                          ),
-                          if (index !=
-                              controller.playbackHistoryTracks.length - 1)
-                            const SizedBox(height: 12),
-                        ],
-                      ],
-                    ),
-                  ),
-                ],
-                if (controller.filteredLibraryTracks.isNotEmpty) ...[
-                  const SizedBox(height: 30),
-                  SectionCard(
-                    title: controller.libraryFilter == LibraryFilter.favorites
-                        ? 'Liked Tracks'
-                        : 'Tracks',
-                    child: Column(
-                      children: [
-                        for (
-                          var index = 0;
-                          index < controller.filteredLibraryTracks.length;
-                          index++
-                        ) ...[
-                          TrackRow(
-                            track: controller.filteredLibraryTracks[index],
-                            onTap: () {
-                              controller.playTrack(
-                                controller.filteredLibraryTracks[index],
-                                collection: controller.collectionForTrack(
-                                  controller.filteredLibraryTracks[index],
-                                ),
-                              );
-                            },
-                            trailing: _LibraryTrackActions(
-                              track: controller.filteredLibraryTracks[index],
-                            ),
-                          ),
-                          if (index !=
-                              controller.filteredLibraryTracks.length - 1)
-                            const SizedBox(height: 12),
-                        ],
-                      ],
-                    ),
-                  ),
-                ],
-                if (controller.filteredLibraryCollections.isEmpty &&
-                    controller.filteredLibraryTracks.isEmpty) ...[
-                  const SizedBox(height: 30),
-                  const _LibraryPlaceholder(
-                    message:
-                        'Nothing matches the current filter yet. Try another filter or import more files.',
-                  ),
-                ],
+                _LibraryViewsCard(controller: controller),
+                const SizedBox(height: 30),
+                _FocusedViewSection(controller: controller),
+                const SizedBox(height: 30),
+                _TracksSection(controller: controller),
+                const SizedBox(height: 30),
+                _AlbumsAndArtistsSection(controller: controller),
+                const SizedBox(height: 30),
+                _HistorySection(controller: controller),
+                const SizedBox(height: 30),
+                _RecentImportsSection(controller: controller),
               ],
             ],
           ),
         ),
       ),
     );
-  }
-
-  String _libraryCollectionTitle(LibraryFilter filter) {
-    return switch (filter) {
-      LibraryFilter.albums => 'Albums',
-      LibraryFilter.artists => 'Artists',
-      LibraryFilter.playlists => 'Playlists',
-      LibraryFilter.folders => 'Folders',
-      LibraryFilter.favorites => 'Saved Collections',
-      LibraryFilter.all => 'Collections',
-      LibraryFilter.tracks => 'Collections',
-    };
   }
 }
 
@@ -360,29 +204,68 @@ class _LibrarySummary extends StatelessWidget {
   }
 }
 
-class _AiStatusCard extends StatelessWidget {
-  const _AiStatusCard({required this.controller});
+class _LibraryContextCard extends StatelessWidget {
+  const _LibraryContextCard({required this.controller});
 
   final MusicAppController controller;
 
   @override
   Widget build(BuildContext context) {
+    final unavailableCount = controller.importedTracks
+        .where((track) => !track.isAvailable)
+        .length;
+
     return GlassPanel(
       padding: const EdgeInsets.all(20),
       borderRadius: BorderRadius.circular(30),
-      tintColors: const [Color(0xFF182F48), Color(0xFF214C76)],
+      tintColors: [
+        LiquidPalette.surfaceRaised.withValues(alpha: 0.98),
+        LiquidPalette.surface.withValues(alpha: 0.94),
+      ],
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('AI Layer', style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 8),
           Text(
-            controller.hasPro
-                ? 'Unlimited AI search and smart organization are active.'
-                : '${controller.aiSearchTrialsRemaining} free AI searches remain before the Pro paywall appears.',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Colors.white.withValues(alpha: 0.7),
-            ),
+            'Playback Context',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 10),
+          _ContextRow(
+            icon: Icons.play_circle_outline_rounded,
+            label: 'Resume queue',
+            value: controller.resumeTracks.isEmpty
+                ? 'No saved positions yet.'
+                : '${controller.resumeTracks.length} track${controller.resumeTracks.length == 1 ? '' : 's'} can resume.',
+          ),
+          const SizedBox(height: 12),
+          _ContextRow(
+            icon: Icons.history_rounded,
+            label: 'Recent sessions',
+            value: controller.playbackEvents.isEmpty
+                ? 'Playback events appear after the first play.'
+                : '${controller.playbackEvents.length} local session event${controller.playbackEvents.length == 1 ? '' : 's'} stored.',
+          ),
+          const SizedBox(height: 12),
+          _ContextRow(
+            icon: Icons.link_off_rounded,
+            label: 'Unavailable files',
+            value: unavailableCount == 0
+                ? 'All imported files are currently reachable.'
+                : '$unavailableCount track${unavailableCount == 1 ? '' : 's'} need re-linking or removal.',
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              GlassPill(label: controller.membershipTier.label),
+              GlassPill(label: controller.syncState.phase.name),
+              if (controller.syncState.lastSyncedAt != null)
+                GlassPill(
+                  label:
+                      'Updated ${formatRelativePlayTime(controller.syncState.lastSyncedAt!)}',
+                ),
+            ],
           ),
         ],
       ),
@@ -390,34 +273,182 @@ class _AiStatusCard extends StatelessWidget {
   }
 }
 
-class _SyncStatusCard extends StatelessWidget {
-  const _SyncStatusCard({required this.controller});
+class _ContextRow extends StatelessWidget {
+  const _ContextRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            color: Colors.white.withValues(alpha: 0.08),
+          ),
+          child: Icon(icon, size: 20),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 4),
+              Text(
+                value,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Colors.white.withValues(alpha: 0.68),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _LibraryViewsCard extends StatelessWidget {
+  const _LibraryViewsCard({required this.controller});
 
   final MusicAppController controller;
 
   @override
   Widget build(BuildContext context) {
-    final state = controller.syncState;
-    return GlassPanel(
-      padding: const EdgeInsets.all(20),
-      borderRadius: BorderRadius.circular(30),
-      tintColors: const [Color(0xFF173440), Color(0xFF215262)],
+    return SectionCard(
+      title: 'Views',
+      subtitle:
+          'Switch the focused lane while keeping Tracks, History, and Imports always visible below.',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Cloud Sync', style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 8),
-          Text(
-            state.message,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Colors.white.withValues(alpha: 0.7),
-            ),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              for (final filter in LibraryFilter.values)
+                GlassPill(
+                  label: filter.label,
+                  selected: controller.libraryFilter == filter,
+                  onTap: () => controller.setLibraryFilter(filter),
+                ),
+            ],
           ),
-          if (state.lastSyncedAt != null) ...[
-            const SizedBox(height: 10),
-            GlassPill(
-              label: 'Updated ${formatRelativePlayTime(state.lastSyncedAt!)}',
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              for (final sort in LibrarySort.values)
+                GlassPill(
+                  label: 'Sort ${sort.label}',
+                  selected: controller.librarySort == sort,
+                  onTap: () => controller.setLibrarySort(sort),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FocusedViewSection extends StatelessWidget {
+  const _FocusedViewSection({required this.controller});
+
+  final MusicAppController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final focusedTracks = controller.filteredLibraryTracks;
+    final focusedCollections = controller.filteredLibraryCollections;
+
+    return SectionCard(
+      title: 'Focused View',
+      subtitle:
+          'This area reacts to the selected filter, while the core library blocks stay fixed below.',
+      trailing: GlassPill(label: controller.libraryFilter.label),
+      child: focusedTracks.isEmpty && focusedCollections.isEmpty
+          ? const _LibraryPlaceholder(
+              message:
+                  'Nothing matches the current filter yet. Try another view or import more files.',
+            )
+          : Column(
+              children: [
+                if (focusedCollections.isNotEmpty) ...[
+                  Wrap(
+                    spacing: 14,
+                    runSpacing: 14,
+                    children: [
+                      for (final collection in focusedCollections.take(6))
+                        _CollectionPeekCard(collection: collection),
+                    ],
+                  ),
+                  if (focusedTracks.isNotEmpty) const SizedBox(height: 18),
+                ],
+                if (focusedTracks.isNotEmpty)
+                  Column(
+                    children: [
+                      for (
+                        var index = 0;
+                        index < focusedTracks.length && index < 6;
+                        index++
+                      ) ...[
+                        TrackRow(
+                          track: focusedTracks[index],
+                          onTap: () =>
+                              _openTrack(controller, focusedTracks[index]),
+                          trailing: _LibraryTrackActions(
+                            track: focusedTracks[index],
+                          ),
+                        ),
+                        if (index != focusedTracks.length - 1 && index != 5)
+                          const SizedBox(height: 12),
+                      ],
+                    ],
+                  ),
+              ],
             ),
+    );
+  }
+}
+
+class _TracksSection extends StatelessWidget {
+  const _TracksSection({required this.controller});
+
+  final MusicAppController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final tracks = _sortTracks(
+      controller.importedTracks,
+      controller.librarySort,
+    ).take(8).toList(growable: false);
+
+    return SectionCard(
+      title: 'Tracks',
+      subtitle:
+          'Your local source files, ready for playback, relinking, or cleanup.',
+      child: Column(
+        children: [
+          for (var index = 0; index < tracks.length; index++) ...[
+            TrackRow(
+              track: tracks[index],
+              onTap: () => _openTrack(controller, tracks[index]),
+              trailing: _LibraryTrackActions(track: tracks[index]),
+            ),
+            if (index != tracks.length - 1) const SizedBox(height: 12),
           ],
         ],
       ),
@@ -425,8 +456,241 @@ class _SyncStatusCard extends StatelessWidget {
   }
 }
 
-class _QuickCollectionCard extends StatelessWidget {
-  const _QuickCollectionCard({required this.collection});
+class _AlbumsAndArtistsSection extends StatelessWidget {
+  const _AlbumsAndArtistsSection({required this.controller});
+
+  final MusicAppController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final albums = controller.albumCollections.take(4).toList(growable: false);
+    final artists = controller.artistCollections
+        .take(4)
+        .toList(growable: false);
+    final wide = isWideWidth(context);
+
+    return SectionCard(
+      title: 'Albums / Artists',
+      subtitle:
+          'Generated directly from imported metadata and folder structure.',
+      child: wide
+          ? Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: _CollectionColumn(
+                    title: 'Albums',
+                    collections: albums,
+                    emptyMessage: 'Albums appear after import.',
+                  ),
+                ),
+                const SizedBox(width: 18),
+                Expanded(
+                  child: _CollectionColumn(
+                    title: 'Artists',
+                    collections: artists,
+                    emptyMessage: 'Artists appear after import.',
+                  ),
+                ),
+              ],
+            )
+          : Column(
+              children: [
+                _CollectionColumn(
+                  title: 'Albums',
+                  collections: albums,
+                  emptyMessage: 'Albums appear after import.',
+                ),
+                const SizedBox(height: 18),
+                _CollectionColumn(
+                  title: 'Artists',
+                  collections: artists,
+                  emptyMessage: 'Artists appear after import.',
+                ),
+              ],
+            ),
+    );
+  }
+}
+
+class _CollectionColumn extends StatelessWidget {
+  const _CollectionColumn({
+    required this.title,
+    required this.collections,
+    required this.emptyMessage,
+  });
+
+  final String title;
+  final List<MusicCollection> collections;
+  final String emptyMessage;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: 14),
+        if (collections.isEmpty)
+          _LibraryPlaceholder(message: emptyMessage)
+        else
+          Column(
+            children: [
+              for (var index = 0; index < collections.length; index++) ...[
+                _CollectionRow(collection: collections[index]),
+                if (index != collections.length - 1) const SizedBox(height: 12),
+              ],
+            ],
+          ),
+      ],
+    );
+  }
+}
+
+class _HistorySection extends StatelessWidget {
+  const _HistorySection({required this.controller});
+
+  final MusicAppController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final resume = controller.resumeTracks.take(4).toList(growable: false);
+    final mostPlayed = controller.mostPlayedTracks
+        .take(4)
+        .toList(growable: false);
+    final groups = controller.recentSessionGroups
+        .take(3)
+        .toList(growable: false);
+    final tracksById = {
+      for (final track in controller.importedTracks) track.id: track,
+    };
+
+    return SectionCard(
+      title: 'History',
+      subtitle:
+          'Recent Sessions, Resume, and Most Played all come from the same persistent playback record.',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Recent Sessions',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 14),
+          if (groups.isEmpty)
+            const _LibraryPlaceholder(
+              message: 'Recent sessions appear after playback starts.',
+            )
+          else
+            Column(
+              children: [
+                for (var index = 0; index < groups.length; index++) ...[
+                  _HistoryDayBlock(
+                    day: groups[index].day,
+                    events: groups[index].events,
+                    tracksById: tracksById,
+                  ),
+                  if (index != groups.length - 1) const SizedBox(height: 14),
+                ],
+              ],
+            ),
+          const SizedBox(height: 22),
+          Text('Resume', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 14),
+          if (resume.isEmpty)
+            const _LibraryPlaceholder(
+              message: 'Tracks with saved positions will appear here.',
+            )
+          else
+            Column(
+              children: [
+                for (var index = 0; index < resume.length; index++) ...[
+                  TrackRow(
+                    track: resume[index],
+                    onTap: () {
+                      controller.resumeTrack(
+                        resume[index],
+                        collection: controller.collectionForTrack(
+                          resume[index],
+                        ),
+                      );
+                    },
+                    trailing: _ResumeTrackActions(track: resume[index]),
+                  ),
+                  if (index != resume.length - 1) const SizedBox(height: 12),
+                ],
+              ],
+            ),
+          const SizedBox(height: 22),
+          Text('Most Played', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 14),
+          if (mostPlayed.isEmpty)
+            const _LibraryPlaceholder(
+              message: 'Most-played rankings appear after a little listening.',
+            )
+          else
+            Column(
+              children: [
+                for (var index = 0; index < mostPlayed.length; index++) ...[
+                  TrackRow(
+                    track: mostPlayed[index],
+                    onTap: () => _openTrack(controller, mostPlayed[index]),
+                    trailing: _MostPlayedTrackActions(track: mostPlayed[index]),
+                  ),
+                  if (index != mostPlayed.length - 1)
+                    const SizedBox(height: 12),
+                ],
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RecentImportsSection extends StatelessWidget {
+  const _RecentImportsSection({required this.controller});
+
+  final MusicAppController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final tracks = controller.recentImportedTracks
+        .take(6)
+        .toList(growable: false);
+
+    return SectionCard(
+      title: 'Imported Recently',
+      subtitle:
+          'The newest local files you brought into ChiMusic, including those not played yet.',
+      child: Column(
+        children: [
+          for (var index = 0; index < tracks.length; index++) ...[
+            TrackRow(
+              track: tracks[index],
+              onTap: () => _openTrack(controller, tracks[index]),
+              trailing: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  GlassPill(
+                    label: formatRelativePlayTime(tracks[index].importedAt),
+                  ),
+                  if (!tracks[index].isAvailable)
+                    const GlassPill(label: 'Unavailable'),
+                ],
+              ),
+            ),
+            if (index != tracks.length - 1) const SizedBox(height: 12),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _CollectionPeekCard extends StatelessWidget {
+  const _CollectionPeekCard({required this.collection});
 
   final MusicCollection collection;
 
@@ -435,9 +699,8 @@ class _QuickCollectionCard extends StatelessWidget {
     return SizedBox(
       width: isWideWidth(context) ? 250 : double.infinity,
       child: GlassPanel(
-        onTap: () {
-          Navigator.of(context).push(CollectionDetailPage.route(collection));
-        },
+        onTap: () =>
+            Navigator.of(context).push(CollectionDetailPage.route(collection)),
         padding: const EdgeInsets.all(18),
         borderRadius: BorderRadius.circular(28),
         tintColors: [
@@ -451,9 +714,12 @@ class _QuickCollectionCard extends StatelessWidget {
             ArtworkCover(
               title: collection.title,
               palette: collection.palette,
+              artworkUri: collection.artworkUri,
               size: 96,
               showTitle: true,
-              icon: Icons.queue_music_rounded,
+              icon: collection.kind == MusicCollectionKind.folder
+                  ? Icons.folder_rounded
+                  : Icons.queue_music_rounded,
             ),
             const SizedBox(height: 14),
             Text(
@@ -474,8 +740,8 @@ class _QuickCollectionCard extends StatelessWidget {
   }
 }
 
-class _LibraryCollectionRow extends StatelessWidget {
-  const _LibraryCollectionRow({required this.collection});
+class _CollectionRow extends StatelessWidget {
+  const _CollectionRow({required this.collection});
 
   final MusicCollection collection;
 
@@ -483,9 +749,8 @@ class _LibraryCollectionRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = ChiMusicScope.watch(context);
     return GlassPanel(
-      onTap: () {
-        Navigator.of(context).push(CollectionDetailPage.route(collection));
-      },
+      onTap: () =>
+          Navigator.of(context).push(CollectionDetailPage.route(collection)),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       borderRadius: BorderRadius.circular(24),
       tintColors: [
@@ -498,6 +763,7 @@ class _LibraryCollectionRow extends StatelessWidget {
           ArtworkCover(
             title: collection.title,
             palette: collection.palette,
+            artworkUri: collection.artworkUri,
             size: 60,
             borderRadius: BorderRadius.circular(16),
             showTitle: true,
@@ -548,8 +814,79 @@ class _LibraryCollectionRow extends StatelessWidget {
   }
 }
 
-class _PlaybackHistoryTrackActions extends StatelessWidget {
-  const _PlaybackHistoryTrackActions({required this.track});
+class _HistoryDayBlock extends StatelessWidget {
+  const _HistoryDayBlock({
+    required this.day,
+    required this.events,
+    required this.tracksById,
+  });
+
+  final DateTime day;
+  final List<PlaybackEvent> events;
+  final Map<String, Track> tracksById;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = ChiMusicScope.watch(context);
+    return GlassPanel(
+      padding: const EdgeInsets.all(18),
+      borderRadius: BorderRadius.circular(28),
+      tintColors: [
+        LiquidPalette.surfaceSoft.withValues(alpha: 0.68),
+        LiquidPalette.surface.withValues(alpha: 0.92),
+      ],
+      withShadow: false,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                _formatHistoryDay(day),
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const Spacer(),
+              GlassPill(
+                label: '${events.length} event${events.length == 1 ? '' : 's'}',
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          for (var index = 0; index < events.length && index < 3; index++) ...[
+            Builder(
+              builder: (context) {
+                final event = events[index];
+                final track = tracksById[event.trackId];
+                if (track == null) {
+                  return const SizedBox.shrink();
+                }
+                return TrackRow(
+                  track: track,
+                  onTap: () => _openTrack(controller, track),
+                  trailing: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      GlassPill(
+                        label: _playbackEndReasonLabel(event.endReason),
+                      ),
+                      GlassPill(label: formatDuration(event.maxPosition)),
+                    ],
+                  ),
+                );
+              },
+            ),
+            if (index != events.length - 1 && index != 2)
+              const SizedBox(height: 12),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ResumeTrackActions extends StatelessWidget {
+  const _ResumeTrackActions({required this.track});
 
   final Track track;
 
@@ -561,10 +898,36 @@ class _PlaybackHistoryTrackActions extends StatelessWidget {
       spacing: 8,
       runSpacing: 8,
       children: [
-        GlassPill(label: '${entry?.playCount ?? 1} plays'),
+        GlassPill(label: formatDuration(entry?.lastPosition)),
         GlassPill(
-          label: formatRelativePlayTime(entry?.lastPlayedAt ?? DateTime.now()),
+          label: entry == null
+              ? 'Resume'
+              : 'Played ${formatRelativePlayTime(entry.lastPlayedAt)}',
         ),
+      ],
+    );
+  }
+}
+
+class _MostPlayedTrackActions extends StatelessWidget {
+  const _MostPlayedTrackActions({required this.track});
+
+  final Track track;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = ChiMusicScope.watch(context);
+    final entry = controller.playbackHistoryEntryForTrack(track.id);
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        GlassPill(
+          label:
+              '${entry?.playCount ?? 0} play${entry?.playCount == 1 ? '' : 's'}',
+        ),
+        if (entry != null)
+          GlassPill(label: formatDuration(entry.totalListened)),
       ],
     );
   }
@@ -578,6 +941,25 @@ class _LibraryTrackActions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = ChiMusicScope.watch(context);
+
+    if (!track.isAvailable) {
+      return Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          const GlassPill(label: 'Unavailable'),
+          GlassPill(
+            label: 'Re-link',
+            onTap: () => controller.relinkTrack(track),
+          ),
+          GlassPill(
+            label: 'Remove',
+            onTap: () => controller.removeTrackFromLibrary(track.id),
+          ),
+        ],
+      );
+    }
+
     return Wrap(
       spacing: 8,
       runSpacing: 8,
@@ -606,4 +988,83 @@ class _LibraryPlaceholder extends StatelessWidget {
       ),
     );
   }
+}
+
+void _openTrack(MusicAppController controller, Track track) {
+  if (!track.isAvailable) {
+    controller.relinkTrack(track);
+    return;
+  }
+
+  final entry = controller.playbackHistoryEntryForTrack(track.id);
+  final collection = controller.collectionForTrack(track);
+  if (entry != null && entry.lastPosition > Duration.zero) {
+    controller.resumeTrack(track, collection: collection);
+    return;
+  }
+
+  controller.playTrack(track, collection: collection);
+}
+
+List<Track> _sortTracks(List<Track> tracks, LibrarySort sort) {
+  final sorted = List<Track>.from(tracks);
+  switch (sort) {
+    case LibrarySort.recent:
+      sorted.sort((a, b) => b.importedAt.compareTo(a.importedAt));
+      break;
+    case LibrarySort.title:
+      sorted.sort(
+        (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()),
+      );
+      break;
+    case LibrarySort.length:
+      sorted.sort(
+        (a, b) => (b.duration ?? Duration.zero).compareTo(
+          a.duration ?? Duration.zero,
+        ),
+      );
+      break;
+  }
+  return sorted;
+}
+
+String _formatHistoryDay(DateTime day) {
+  final now = DateTime.now();
+  final startOfToday = DateTime(now.year, now.month, now.day);
+  final startOfDay = DateTime(day.year, day.month, day.day);
+  final difference = startOfToday.difference(startOfDay).inDays;
+
+  if (difference == 0) {
+    return 'Today';
+  }
+  if (difference == 1) {
+    return 'Yesterday';
+  }
+
+  const monthLabels = <String>[
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  return '${monthLabels[day.month - 1]} ${day.day}';
+}
+
+String _playbackEndReasonLabel(PlaybackEndReason? reason) {
+  return switch (reason) {
+    PlaybackEndReason.completed => 'Completed',
+    PlaybackEndReason.paused => 'Paused',
+    PlaybackEndReason.skipped => 'Skipped',
+    PlaybackEndReason.stopped => 'Stopped',
+    PlaybackEndReason.replaced => 'Replaced',
+    null => 'Active',
+  };
 }

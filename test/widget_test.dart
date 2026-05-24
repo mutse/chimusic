@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:chimusic/app/chimusic_app.dart';
 import 'package:chimusic/data/music_session_store.dart';
 import 'package:chimusic/models/music_models.dart';
+import 'package:chimusic/screens/now_playing_sheet.dart';
 import 'package:chimusic/state/chimusic_controller.dart';
 import 'package:chimusic/state/chimusic_scope.dart';
 import 'package:chimusic/widgets/app_shell.dart';
@@ -27,6 +28,23 @@ void main() {
     );
 
     controller.dispose();
+  });
+
+  testWidgets('home metrics do not overflow on compact wide layouts', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(860, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final controller = MusicAppController(enableAudio: false);
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(ChiMusicRoot(controller: controller));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.text('Resume Ready'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('flushes pending session data when the app is backgrounded', (
@@ -131,6 +149,145 @@ void main() {
       expect(find.text('Voyager'), findsWidgets);
     },
   );
+
+  testWidgets(
+    'library screen renders history, resume, and most played sections',
+    (tester) async {
+      final resumeTrack = Track(
+        id: '/music/history/North Coast - Replay.mp3',
+        filePath: '/music/history/North Coast - Replay.mp3',
+        fileName: 'North Coast - Replay.mp3',
+        folderPath: '/music/history',
+        title: 'Replay',
+        artist: 'North Coast',
+        album: 'Sea Glass',
+        palette: const [
+          Color(0xFF1ED760),
+          Color(0xFF0F5132),
+          Color(0xFF111318),
+        ],
+        importedAt: DateTime(2026, 5, 6, 15),
+        duration: const Duration(minutes: 4),
+        fileExtension: 'mp3',
+      );
+      final mostPlayedTrack = Track(
+        id: '/music/history/North Coast - Looped.mp3',
+        filePath: '/music/history/North Coast - Looped.mp3',
+        fileName: 'North Coast - Looped.mp3',
+        folderPath: '/music/history',
+        title: 'Looped',
+        artist: 'North Coast',
+        album: 'Sea Glass',
+        palette: const [
+          Color(0xFF4B7BFF),
+          Color(0xFF0F3251),
+          Color(0xFF111318),
+        ],
+        importedAt: DateTime(2026, 5, 6, 16),
+        duration: const Duration(minutes: 5),
+        fileExtension: 'mp3',
+      );
+      final controller = MusicAppController(
+        enableAudio: false,
+        initialTracks: [resumeTrack, mostPlayedTrack],
+        initialSelectedTab: MusicTab.library,
+        initialPlaybackHistory: [
+          PlaybackHistoryEntry(
+            trackId: resumeTrack.id,
+            lastPlayedAt: DateTime(2026, 5, 8, 10),
+            lastPosition: const Duration(minutes: 1, seconds: 32),
+            playCount: 2,
+            totalListened: const Duration(minutes: 4),
+          ),
+          PlaybackHistoryEntry(
+            trackId: mostPlayedTrack.id,
+            lastPlayedAt: DateTime(2026, 5, 8, 8),
+            playCount: 6,
+            totalListened: const Duration(minutes: 14),
+          ),
+        ],
+        initialPlaybackEvents: [
+          PlaybackEvent(
+            id: 'evt-1',
+            trackId: resumeTrack.id,
+            startedAt: DateTime(2026, 5, 8, 10),
+            endedAt: DateTime(2026, 5, 8, 10, 2),
+            maxPosition: const Duration(minutes: 1, seconds: 32),
+            endReason: PlaybackEndReason.paused,
+            collectionId: '/music/history',
+          ),
+        ],
+      );
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(ChiMusicRoot(controller: controller));
+      await tester.pump();
+
+      expect(find.text('History'), findsOneWidget);
+      expect(find.text('Recent Sessions'), findsOneWidget);
+      expect(find.text('Resume'), findsOneWidget);
+      expect(find.text('Most Played'), findsOneWidget);
+      expect(find.text('Replay'), findsWidgets);
+      expect(find.text('Looped'), findsWidgets);
+    },
+  );
+
+  testWidgets('now playing sheet shows queue, lyrics, and history tabs', (
+    tester,
+  ) async {
+    final track = Track(
+      id: '/music/stage/North Coast - Blue Horizon.mp3',
+      filePath: '/music/stage/North Coast - Blue Horizon.mp3',
+      fileName: 'North Coast - Blue Horizon.mp3',
+      folderPath: '/music/stage',
+      title: 'Blue Horizon',
+      artist: 'North Coast',
+      album: 'Sea Glass',
+      palette: const [Color(0xFF1ED760), Color(0xFF0F5132), Color(0xFF111318)],
+      importedAt: DateTime(2026, 5, 6, 15),
+      duration: const Duration(minutes: 4),
+      fileExtension: 'mp3',
+    );
+    final controller = MusicAppController(
+      enableAudio: false,
+      initialTracks: [track],
+      initialPlaybackHistory: [
+        PlaybackHistoryEntry(
+          trackId: track.id,
+          lastPlayedAt: DateTime(2026, 5, 8, 10),
+          lastPosition: const Duration(minutes: 2),
+          playCount: 3,
+          totalListened: const Duration(minutes: 6),
+        ),
+      ],
+      initialPlaybackEvents: [
+        PlaybackEvent(
+          id: 'evt-stage',
+          trackId: track.id,
+          startedAt: DateTime(2026, 5, 8, 10),
+          endedAt: DateTime(2026, 5, 8, 10, 2),
+          maxPosition: const Duration(minutes: 2),
+          endReason: PlaybackEndReason.paused,
+          collectionId: 'all_tracks',
+        ),
+      ],
+    );
+    addTearDown(controller.dispose);
+
+    await controller.playImportedTracks();
+    await tester.pumpWidget(ChiMusicRoot(controller: controller));
+    await tester.pump();
+
+    final context = tester.element(find.byType(AppShell));
+    Navigator.of(context).push(NowPlayingSheet.route());
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 450));
+
+    expect(find.text('Queue'), findsOneWidget);
+    expect(find.text('Lyrics'), findsOneWidget);
+    expect(find.text('History'), findsOneWidget);
+    expect(find.text('Blue Horizon'), findsWidgets);
+  });
 }
 
 class _BlockingSessionStore implements MusicSessionStore {
