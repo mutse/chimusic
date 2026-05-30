@@ -86,6 +86,9 @@ class MusicAppController extends ChangeNotifier {
     _syncState = _buildDefaultSyncState();
     _primeLyricsStates();
     _bindAudioStreams();
+    if (_player case final player?) {
+      unawaited(player.setVolume(_volume));
+    }
   }
 
   final bool _audioEnabled;
@@ -129,6 +132,7 @@ class MusicAppController extends ChangeNotifier {
   Track? _currentTrack;
   MusicCollection? _currentCollection;
   Duration _position = Duration.zero;
+  double _volume = 0.8;
   MusicTab _selectedTab = MusicTab.home;
   LibraryFilter _libraryFilter = LibraryFilter.all;
   LibrarySort _librarySort = LibrarySort.recent;
@@ -174,6 +178,7 @@ class MusicAppController extends ChangeNotifier {
   Track? get currentTrack => _currentTrack;
   MusicCollection? get currentCollection => _currentCollection;
   Duration get position => _position;
+  double get volume => _volume;
   List<Track> get queue => List<Track>.unmodifiable(_queue);
   String? get statusMessage => _statusMessage;
   String? get aiSearchSummary => _aiSearchSummary;
@@ -1779,6 +1784,23 @@ class MusicAppController extends ChangeNotifier {
     notifyListeners();
     await player.seek(nextPosition);
     _persistSession();
+  }
+
+  Future<void> setVolume(double value) async {
+    final clamped = value.clamp(0.0, 1.0).toDouble();
+    if ((_volume - clamped).abs() < 0.001) {
+      return;
+    }
+
+    _volume = clamped;
+    notifyListeners();
+
+    final player = _player;
+    if (!_audioEnabled || player == null) {
+      return;
+    }
+
+    await player.setVolume(clamped);
   }
 
   Future<void> skipNext() async {

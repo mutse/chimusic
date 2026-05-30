@@ -9,6 +9,7 @@ import '../screens/now_playing_sheet.dart';
 import '../screens/search_screen.dart';
 import '../state/chimusic_scope.dart';
 import 'glass.dart';
+import 'macos_player_shell.dart';
 import 'local_music_widgets.dart';
 
 class AppShell extends StatelessWidget {
@@ -18,6 +19,11 @@ class AppShell extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = ChiMusicScope.watch(context);
     final desktop = isDesktopWidth(context);
+
+    if (desktop) {
+      return const MacosPlayerShell();
+    }
+
     final currentTrack = controller.currentTrack;
 
     return Scaffold(
