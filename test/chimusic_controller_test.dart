@@ -882,6 +882,77 @@ void main() {
         expect(controller.albumCount, 2);
       },
     );
+
+    test(
+      'theme and playback mode preferences persist across restore',
+      () async {
+        final repository = InMemoryMusicRepository();
+        final controller = MusicAppController(
+          enableAudio: false,
+          repository: repository,
+        );
+        addTearDown(controller.dispose);
+
+        controller.setThemeMode(AppThemeMode.light);
+        await controller.toggleShuffle();
+        await controller.toggleRepeat();
+        await controller.flushSession();
+
+        final restored = MusicAppController(
+          enableAudio: false,
+          repository: repository,
+        );
+        addTearDown(restored.dispose);
+
+        await restored.restoreSession();
+
+        expect(restored.themeMode, AppThemeMode.light);
+        expect(restored.isShuffleEnabled, isTrue);
+        expect(restored.isRepeatEnabled, isTrue);
+      },
+    );
+
+    test('skipNext wraps only when repeat is enabled', () async {
+      final firstTrack = _track(
+        folderPath: '/music/queue',
+        title: 'First Light',
+        artist: 'North Coast',
+        album: 'Queue',
+        duration: const Duration(minutes: 3),
+        importedAt: DateTime(2026, 5, 5, 20),
+      );
+      final secondTrack = _track(
+        folderPath: '/music/queue',
+        title: 'Second Signal',
+        artist: 'North Coast',
+        album: 'Queue',
+        duration: const Duration(minutes: 4),
+        importedAt: DateTime(2026, 5, 5, 21),
+      );
+      final collection = MusicCollection(
+        id: 'queue',
+        title: 'Queue',
+        subtitle: '2 tracks',
+        description: 'Test queue',
+        kind: MusicCollectionKind.playlist,
+        palette: secondTrack.palette,
+        tracks: [firstTrack, secondTrack],
+      );
+      final controller = MusicAppController(
+        enableAudio: false,
+        initialTracks: [firstTrack, secondTrack],
+      );
+      addTearDown(controller.dispose);
+
+      await controller.playTrack(secondTrack, collection: collection);
+
+      await controller.skipNext();
+      expect(controller.currentTrack?.id, secondTrack.id);
+
+      await controller.toggleRepeat();
+      await controller.skipNext();
+      expect(controller.currentTrack?.id, firstTrack.id);
+    });
   });
 }
 

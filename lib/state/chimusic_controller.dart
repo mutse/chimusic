@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 import 'dart:ui' show Color;
 
 import 'package:file_selector/file_selector.dart';
@@ -48,6 +49,9 @@ class MusicAppController extends ChangeNotifier {
     SearchMode initialSearchMode = SearchMode.standard,
     UserProfile? initialUserProfile,
     int initialAiSearchTrialsRemaining = 2,
+    AppThemeMode initialThemeMode = AppThemeMode.dark,
+    bool initialShuffleEnabled = false,
+    bool initialRepeatEnabled = false,
   }) : _audioEnabled = enableAudio,
        _repository =
            repository ??
@@ -83,11 +87,17 @@ class MusicAppController extends ChangeNotifier {
     _searchMode = initialSearchMode;
     _userProfile = initialUserProfile;
     _aiSearchTrialsRemaining = initialAiSearchTrialsRemaining;
+    _themeMode = initialThemeMode;
+    _isShuffleEnabled = initialShuffleEnabled;
+    _isRepeatEnabled = initialRepeatEnabled;
     _syncState = _buildDefaultSyncState();
     _primeLyricsStates();
     _bindAudioStreams();
     if (_player case final player?) {
       unawaited(player.setVolume(_volume));
+      unawaited(
+        player.setLoopMode(_isRepeatEnabled ? LoopMode.all : LoopMode.off),
+      );
     }
   }
 
@@ -153,6 +163,9 @@ class MusicAppController extends ChangeNotifier {
   List<Track> _aiSearchResults = <Track>[];
   List<SmartPlaylist> _smartPlaylists = <SmartPlaylist>[];
   List<RecommendationCard> _recommendationCards = <RecommendationCard>[];
+  AppThemeMode _themeMode = AppThemeMode.dark;
+  bool _isShuffleEnabled = false;
+  bool _isRepeatEnabled = false;
 
   MusicTab get selectedTab => _selectedTab;
   LibraryFilter get libraryFilter => _libraryFilter;
@@ -179,6 +192,9 @@ class MusicAppController extends ChangeNotifier {
   MusicCollection? get currentCollection => _currentCollection;
   Duration get position => _position;
   double get volume => _volume;
+  AppThemeMode get themeMode => _themeMode;
+  bool get isShuffleEnabled => _isShuffleEnabled;
+  bool get isRepeatEnabled => _isRepeatEnabled;
   List<Track> get queue => List<Track>.unmodifiable(_queue);
   String? get statusMessage => _statusMessage;
   String? get aiSearchSummary => _aiSearchSummary;
@@ -834,6 +850,37 @@ class MusicAppController extends ChangeNotifier {
 
   bool isTrackLiked(String trackId) => _likedTrackIds.contains(trackId);
 
+  List<Track> _orderedQueueForCurrentContext({
+    List<Track>? baseQueue,
+    Track? currentTrack,
+  }) {
+    final current = currentTrack ?? _currentTrack;
+    final tracks =
+        baseQueue ??
+        (() {
+          final collection = _currentCollection;
+          if (collection == null) {
+            return _queue;
+          }
+
+          final availableTrackIds = _queue.map((track) => track.id).toSet();
+          return collection.tracks
+              .where((track) => availableTrackIds.contains(track.id))
+              .toList(growable: false);
+        })();
+
+    final ordered = List<Track>.from(tracks);
+    if (!_isShuffleEnabled || current == null || ordered.length <= 1) {
+      return ordered;
+    }
+
+    final remaining = ordered
+        .where((track) => track.id != current.id)
+        .toList(growable: false);
+    remaining.shuffle(Random(DateTime.now().microsecondsSinceEpoch));
+    return <Track>[current, ...remaining];
+  }
+
   LyricsState lyricsStateForTrack(Track track) {
     return _lyricsByTrackId[track.id] ??
         LyricsState(
@@ -1225,6 +1272,48 @@ class MusicAppController extends ChangeNotifier {
 
     _statusMessage = null;
     notifyListeners();
+  }
+
+  void setStatusMessage(String message) {
+    if (_statusMessage == message) {
+      return;
+    }
+
+    _statusMessage = message;
+    notifyListeners();
+  }
+
+  void toggleThemeMode() {
+    setThemeMode(
+      _themeMode == AppThemeMode.dark ? AppThemeMode.light : AppThemeMode.dark,
+    );
+  }
+
+  void setThemeMode(AppThemeMode mode) {
+    if (_themeMode == mode) {
+      return;
+    }
+
+    _themeMode = mode;
+    notifyListeners();
+    _persistSession();
+  }
+
+  Future<void> toggleShuffle() async {
+    _isShuffleEnabled = !_isShuffleEnabled;
+    await _rebuildQueueForPlaybackOrder();
+  }
+
+  Future<void> toggleRepeat() async {
+    _isRepeatEnabled = !_isRepeatEnabled;
+
+    final player = _player;
+    if (_audioEnabled && player != null) {
+      await player.setLoopMode(_isRepeatEnabled ? LoopMode.all : LoopMode.off);
+    }
+
+    notifyListeners();
+    _persistSession();
   }
 
   void submitSearch([String? value]) {
@@ -1812,7 +1901,15 @@ class MusicAppController extends ChangeNotifier {
     final currentIndex = _queue.indexWhere(
       (track) => track.id == currentTrack.id,
     );
-    final nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % _queue.length;
+    final nextIndex = currentIndex < 0
+        ? 0
+        : currentIndex + 1 < _queue.length
+        ? currentIndex + 1
+        : (_isRepeatEnabled ? 0 : currentIndex);
+
+    if (!_isRepeatEnabled && nextIndex == currentIndex) {
+      return;
+    }
 
     if (!_audioEnabled || _player == null) {
       final nextTrack = _queue[nextIndex];
@@ -1866,7 +1963,7 @@ class MusicAppController extends ChangeNotifier {
       (track) => track.id == currentTrack.id,
     );
     final previousIndex = currentIndex <= 0
-        ? _queue.length - 1
+        ? (_isRepeatEnabled ? _queue.length - 1 : 0)
         : currentIndex - 1;
 
     if (!_audioEnabled || _player == null) {
@@ -2089,6 +2186,70 @@ class MusicAppController extends ChangeNotifier {
   }
 
   String get _normalizedQuery => _searchQuery.trim().toLowerCase();
+
+  Future<void> _rebuildQueueForPlaybackOrder() async {
+    final currentTrack = _currentTrack;
+    if (currentTrack == null || _queue.isEmpty) {
+      notifyListeners();
+      _persistSession();
+      return;
+    }
+
+    final nextQueue = _orderedQueueForCurrentContext(
+      currentTrack: currentTrack,
+    );
+    _queue = nextQueue;
+    final currentIndex = _queue.indexWhere(
+      (track) => track.id == currentTrack.id,
+    );
+    if (currentIndex < 0) {
+      notifyListeners();
+      _persistSession();
+      return;
+    }
+
+    if (!_audioEnabled || _player == null) {
+      notifyListeners();
+      _persistSession();
+      return;
+    }
+
+    final player = _player;
+    final position = _position;
+    final autoplay = _isPlaying;
+    _isPreparingPlayback = true;
+    notifyListeners();
+
+    try {
+      await _refreshQueueFileAccesses(_queue);
+      final sources = _queue
+          .map((track) => AudioSource.uri(Uri.file(track.filePath), tag: track))
+          .toList(growable: false);
+
+      await player.setAudioSources(
+        sources,
+        initialIndex: currentIndex,
+        initialPosition: position,
+      );
+      await player.setLoopMode(_isRepeatEnabled ? LoopMode.all : LoopMode.off);
+
+      if (autoplay) {
+        await player.play();
+      } else {
+        await player.pause();
+      }
+    } on PlayerException {
+      _statusMessage =
+          'Unable to rebuild the playback queue for the new play mode.';
+    } catch (_) {
+      _statusMessage =
+          'Playback queue update failed. Your current library is still intact.';
+    } finally {
+      _isPreparingPlayback = false;
+      notifyListeners();
+      _persistSession();
+    }
+  }
 
   Future<void> _removeTracksFromLibrary(
     Set<String> removedTrackIds, {
@@ -2338,6 +2499,10 @@ class MusicAppController extends ChangeNotifier {
     _currentCollection = collection;
     final currentTrack = _queue[clampedIndex];
     _currentTrack = currentTrack;
+    _queue = _orderedQueueForCurrentContext(
+      baseQueue: _queue,
+      currentTrack: currentTrack,
+    );
     _position = _clampedPositionForTrack(currentTrack, startPosition);
     _lastPersistedPositionBucket = _position.inSeconds ~/ 5;
     if (clearStatusMessage) {
@@ -2368,9 +2533,11 @@ class MusicAppController extends ChangeNotifier {
 
       await player.setAudioSources(
         sources,
-        initialIndex: clampedIndex,
+        initialIndex: _queue.indexWhere((track) => track.id == currentTrack.id),
         initialPosition: _position,
       );
+      await player.setLoopMode(_isRepeatEnabled ? LoopMode.all : LoopMode.off);
+      await player.setShuffleModeEnabled(false);
 
       _isPreparingPlayback = false;
       notifyListeners();
@@ -2402,6 +2569,19 @@ class MusicAppController extends ChangeNotifier {
 
     _subscriptions.add(
       player.playerStateStream.listen((state) {
+        if (state.processingState == ProcessingState.completed) {
+          if (_activePlaybackEventId != null) {
+            _closeActivePlaybackEvent(
+              reason: PlaybackEndReason.completed,
+              finalPosition: _currentTrack?.duration ?? _position,
+            );
+          }
+          _isPlaying = false;
+          notifyListeners();
+          _persistSession();
+          return;
+        }
+
         if (!state.playing && _isPlaying) {
           _closeActivePlaybackEvent(
             reason: PlaybackEndReason.paused,
@@ -2661,6 +2841,9 @@ class MusicAppController extends ChangeNotifier {
       userProfile: _userProfile,
       aiSearchTrialsRemaining: _aiSearchTrialsRemaining,
       hasUnlockedAiUpsell: _hasUnlockedAiUpsell,
+      themeMode: _themeMode,
+      isShuffleEnabled: _isShuffleEnabled,
+      isRepeatEnabled: _isRepeatEnabled,
     );
 
     _persistOperation = _persistOperation.then((_) async {
@@ -2725,9 +2908,6 @@ class MusicAppController extends ChangeNotifier {
         break;
       }
     }
-    final currentIndex = queue.indexWhere(
-      (track) => track.id == currentTrack.id,
-    );
     final initialPosition = _clampedPositionForTrack(
       currentTrack,
       Duration(milliseconds: snapshot.positionMs),
@@ -2736,6 +2916,10 @@ class MusicAppController extends ChangeNotifier {
     _queue = queue;
     _currentTrack = currentTrack;
     _currentCollection = _restoreCollectionFromId(snapshot.currentCollectionId);
+    _queue = _orderedQueueForCurrentContext(
+      baseQueue: _queue,
+      currentTrack: currentTrack,
+    );
     _position = initialPosition;
     _isPlaying = false;
     _isPreparingPlayback = _audioEnabled && _player != null;
@@ -2759,9 +2943,11 @@ class MusicAppController extends ChangeNotifier {
 
       await player.setAudioSources(
         sources,
-        initialIndex: currentIndex < 0 ? 0 : currentIndex,
+        initialIndex: _queue.indexWhere((track) => track.id == currentTrack.id),
         initialPosition: initialPosition,
       );
+      await player.setLoopMode(_isRepeatEnabled ? LoopMode.all : LoopMode.off);
+      await player.setShuffleModeEnabled(false);
       await player.pause();
       _isPreparingPlayback = false;
     } on PlayerException {
@@ -2906,6 +3092,9 @@ class MusicAppController extends ChangeNotifier {
         userProfile: snapshot.userProfile,
         aiSearchTrialsRemaining: snapshot.aiSearchTrialsRemaining,
         hasUnlockedAiUpsell: snapshot.hasUnlockedAiUpsell,
+        themeMode: snapshot.themeMode,
+        isShuffleEnabled: snapshot.isShuffleEnabled,
+        isRepeatEnabled: snapshot.isRepeatEnabled,
       ),
     );
   }
@@ -2956,6 +3145,9 @@ class MusicAppController extends ChangeNotifier {
     _userProfile = snapshot.userProfile;
     _aiSearchTrialsRemaining = snapshot.aiSearchTrialsRemaining;
     _hasUnlockedAiUpsell = snapshot.hasUnlockedAiUpsell;
+    _themeMode = snapshot.themeMode;
+    _isShuffleEnabled = snapshot.isShuffleEnabled;
+    _isRepeatEnabled = snapshot.isRepeatEnabled;
     _savedCollectionIds.removeWhere(
       (collectionId) => collectionById(collectionId) == null,
     );
@@ -3110,6 +3302,9 @@ class MusicAppController extends ChangeNotifier {
       searchQuery: _searchQuery,
       aiSearchTrialsRemaining: _aiSearchTrialsRemaining,
       hasUnlockedAiUpsell: _hasUnlockedAiUpsell,
+      themeMode: _themeMode,
+      isShuffleEnabled: _isShuffleEnabled,
+      isRepeatEnabled: _isRepeatEnabled,
     );
     _applySessionSnapshot(localSnapshot);
     await _refreshOnlineState(notifyAfterCompletion: false);

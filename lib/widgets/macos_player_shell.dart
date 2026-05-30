@@ -1,3 +1,7 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
 import '../models/music_models.dart';
@@ -9,6 +13,21 @@ import 'glass.dart';
 import 'local_music_widgets.dart';
 
 enum _DesktopPage { home, library, nowPlaying, history }
+
+enum _HistoryExportFormat {
+  csv('CSV', 'csv', 'chimusic-history.csv'),
+  json('JSON', 'json', 'chimusic-history.json');
+
+  const _HistoryExportFormat(
+    this.label,
+    this.extension,
+    this.suggestedFileName,
+  );
+
+  final String label;
+  final String extension;
+  final String suggestedFileName;
+}
 
 class MacosPlayerShell extends StatefulWidget {
   const MacosPlayerShell({super.key});
@@ -108,19 +127,139 @@ class _MacosPlayerShellState extends State<MacosPlayerShell> {
     return sorted;
   }
 
+  Future<void> _exportHistory(
+    MusicAppController controller,
+    _HistoryExportFormat format,
+  ) async {
+    final location = await getSaveLocation(
+      suggestedName: format.suggestedFileName,
+      confirmButtonText: '导出',
+      acceptedTypeGroups: <XTypeGroup>[
+        XTypeGroup(label: format.label, extensions: <String>[format.extension]),
+      ],
+    );
+    if (location == null) {
+      return;
+    }
+
+    final payload = switch (format) {
+      _HistoryExportFormat.csv => _buildHistoryCsv(controller),
+      _HistoryExportFormat.json => _buildHistoryJson(controller),
+    };
+
+    try {
+      await File(location.path).writeAsString(payload);
+      if (!mounted) {
+        return;
+      }
+
+      controller.setStatusMessage('已导出播放记录到 ${location.path}');
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('已导出播放记录到 ${location.path}')));
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      controller.setStatusMessage('导出播放记录失败，请重试。');
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('导出播放记录失败，请重试。')));
+    }
+  }
+
+  String _buildHistoryCsv(MusicAppController controller) {
+    final buffer = StringBuffer()
+      ..writeln(
+        'title,artist,album,play_count,last_played_at,resume_position,total_listened',
+      );
+
+    for (final track in controller.playbackHistoryTracks) {
+      final entry = controller.playbackHistoryEntryForTrack(track.id);
+      if (entry == null) {
+        continue;
+      }
+
+      buffer.writeln(
+        <String>[
+          _csvCell(track.title),
+          _csvCell(track.artist),
+          _csvCell(track.album),
+          '${entry.playCount}',
+          _csvCell(entry.lastPlayedAt.toIso8601String()),
+          _csvCell(formatDuration(entry.lastPosition, placeholder: '00:00')),
+          _csvCell(formatDuration(entry.totalListened, placeholder: '00:00')),
+        ].join(','),
+      );
+    }
+
+    return buffer.toString();
+  }
+
+  String _buildHistoryJson(MusicAppController controller) {
+    final data = <String, Object?>{
+      'generatedAt': DateTime.now().toIso8601String(),
+      'tracks': controller.playbackHistoryTracks
+          .map((track) {
+            final entry = controller.playbackHistoryEntryForTrack(track.id);
+            return <String, Object?>{
+              'id': track.id,
+              'title': track.title,
+              'artist': track.artist,
+              'album': track.album,
+              'durationMs': track.duration?.inMilliseconds,
+              'playCount': entry?.playCount ?? 0,
+              'lastPlayedAt': entry?.lastPlayedAt.toIso8601String(),
+              'resumePositionMs': entry?.lastPosition.inMilliseconds ?? 0,
+              'totalListenedMs': entry?.totalListened.inMilliseconds ?? 0,
+            };
+          })
+          .toList(growable: false),
+      'events': controller.playbackEvents
+          .map((event) {
+            return <String, Object?>{
+              'id': event.id,
+              'trackId': event.trackId,
+              'collectionId': event.collectionId,
+              'startedAt': event.startedAt.toIso8601String(),
+              'endedAt': event.endedAt?.toIso8601String(),
+              'maxPositionMs': event.maxPosition.inMilliseconds,
+              'endReason': event.endReason?.name,
+            };
+          })
+          .toList(growable: false),
+    };
+
+    return const JsonEncoder.withIndent('  ').convert(data);
+  }
+
+  String _csvCell(String value) {
+    final escaped = value.replaceAll('"', '""');
+    return '"$escaped"';
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = ChiMusicScope.watch(context);
     _bootstrapFromController(controller);
+    _DesktopPalette.syncWith(
+      controller.themeMode == AppThemeMode.light
+          ? Brightness.light
+          : Brightness.dark,
+    );
 
     return Scaffold(
       backgroundColor: _DesktopPalette.bg0,
       body: DecoratedBox(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [_DesktopPalette.bg0, Color(0xFF0D0D0F), Color(0xFF14110C)],
+            colors: [
+              _DesktopPalette.bg0,
+              _DesktopPalette.backdropMid,
+              _DesktopPalette.backdropEnd,
+            ],
           ),
         ),
         child: SafeArea(
@@ -140,7 +279,7 @@ class _MacosPlayerShellState extends State<MacosPlayerShell> {
                     ),
                     Expanded(
                       child: DecoratedBox(
-                        decoration: const BoxDecoration(
+                        decoration: BoxDecoration(
                           border: Border(
                             left: BorderSide(color: _DesktopPalette.border),
                           ),
@@ -177,6 +316,8 @@ class _MacosPlayerShellState extends State<MacosPlayerShell> {
                                     _setPage(_DesktopPage.library, controller),
                               ),
                               _DesktopPage.history => _DesktopHistoryPage(
+                                onExport: (format) =>
+                                    _exportHistory(controller, format),
                                 onOpenLibrary: () =>
                                     _setPage(_DesktopPage.library, controller),
                               ),
@@ -222,15 +363,17 @@ class _DesktopSidebar extends StatelessWidget {
               children: [
                 Expanded(
                   child: RichText(
-                    text: const TextSpan(
-                      style: TextStyle(
+                    text: TextSpan(
+                      style: const TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w500,
-                        color: _DesktopPalette.accent,
                         letterSpacing: 3.2,
                       ),
                       children: [
-                        TextSpan(text: 'SŌNO '),
+                        TextSpan(
+                          text: 'SŌNO ',
+                          style: TextStyle(color: _DesktopPalette.accent),
+                        ),
                         TextSpan(
                           text: 'player',
                           style: TextStyle(
@@ -244,6 +387,16 @@ class _DesktopSidebar extends StatelessWidget {
                   ),
                 ),
                 _RoundIconButton(
+                  icon: controller.themeMode == AppThemeMode.light
+                      ? Icons.dark_mode_outlined
+                      : Icons.light_mode_outlined,
+                  tooltip: controller.themeMode == AppThemeMode.light
+                      ? '切换到深色'
+                      : '切换到浅色',
+                  onTap: controller.toggleThemeMode,
+                ),
+                const SizedBox(width: 8),
+                _RoundIconButton(
                   icon: Icons.info_outline_rounded,
                   tooltip: 'App details',
                   onTap: () => AppDetailsSheet.show(context),
@@ -251,7 +404,7 @@ class _DesktopSidebar extends StatelessWidget {
               ],
             ),
           ),
-          const Divider(height: 1, color: _DesktopPalette.border),
+          Divider(height: 1, color: _DesktopPalette.border),
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 16, 12, 8),
             child: Column(
@@ -319,7 +472,7 @@ class _DesktopSidebar extends StatelessWidget {
                     },
                   ),
           ),
-          const Divider(height: 1, color: _DesktopPalette.border),
+          Divider(height: 1, color: _DesktopPalette.border),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
             child: Column(
@@ -430,7 +583,7 @@ class _DesktopHomePage extends StatelessWidget {
                       onTap: () => controller.resumeTrack(topTracks[index]),
                     ),
                     if (index != topTracks.length - 1)
-                      const Divider(height: 1, color: _DesktopPalette.border),
+                      Divider(height: 1, color: _DesktopPalette.border),
                   ],
                 ],
               ),
@@ -509,10 +662,10 @@ class _DesktopLibraryPage extends StatelessWidget {
           const SizedBox(height: 18),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               border: Border(bottom: BorderSide(color: _DesktopPalette.border)),
             ),
-            child: const Row(
+            child: Row(
               children: [
                 SizedBox(width: 32),
                 SizedBox(width: 56),
@@ -713,10 +866,7 @@ class _DesktopNowPlayingPage extends StatelessWidget {
                           ),
                         ),
                         if (index != controller.upNext.length - 1)
-                          const Divider(
-                            height: 1,
-                            color: _DesktopPalette.border,
-                          ),
+                          Divider(height: 1, color: _DesktopPalette.border),
                       ],
                     ],
                   ),
@@ -730,9 +880,13 @@ class _DesktopNowPlayingPage extends StatelessWidget {
 }
 
 class _DesktopHistoryPage extends StatelessWidget {
-  const _DesktopHistoryPage({required this.onOpenLibrary});
+  const _DesktopHistoryPage({
+    required this.onOpenLibrary,
+    required this.onExport,
+  });
 
   final VoidCallback onOpenLibrary;
+  final Future<void> Function(_HistoryExportFormat format) onExport;
 
   @override
   Widget build(BuildContext context) {
@@ -747,6 +901,22 @@ class _DesktopHistoryPage extends StatelessWidget {
           Row(
             children: [
               Expanded(child: Text('播放记录', style: _DesktopTypography.display)),
+              TextButton.icon(
+                onPressed: historyTracks.isEmpty
+                    ? null
+                    : () => onExport(_HistoryExportFormat.csv),
+                icon: const Icon(Icons.table_chart_outlined, size: 18),
+                label: const Text('导出 CSV'),
+              ),
+              const SizedBox(width: 8),
+              TextButton.icon(
+                onPressed: historyTracks.isEmpty
+                    ? null
+                    : () => onExport(_HistoryExportFormat.json),
+                icon: const Icon(Icons.data_object_rounded, size: 18),
+                label: const Text('导出 JSON'),
+              ),
+              const SizedBox(width: 8),
               TextButton.icon(
                 onPressed: historyTracks.isEmpty
                     ? null
@@ -800,7 +970,7 @@ class _DesktopHistoryPage extends StatelessWidget {
                   ) ...[
                     _HistoryRow(track: historyTracks[index]),
                     if (index != historyTracks.length - 1)
-                      const Divider(height: 1, color: _DesktopPalette.border),
+                      Divider(height: 1, color: _DesktopPalette.border),
                   ],
                 ],
               ),
@@ -828,7 +998,7 @@ class _DesktopPlayerBar extends StatelessWidget {
     return Container(
       height: 100,
       padding: const EdgeInsets.symmetric(horizontal: 28),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         color: _DesktopPalette.bg1,
         border: Border(top: BorderSide(color: _DesktopPalette.border)),
       ),
@@ -845,7 +1015,7 @@ class _DesktopPlayerBar extends StatelessWidget {
                     title: track?.album ?? 'ChiMusic',
                     palette:
                         track?.palette ??
-                        const <Color>[
+                        <Color>[
                           _DesktopPalette.accent,
                           _DesktopPalette.accentSoft,
                           _DesktopPalette.bg3,
@@ -896,6 +1066,13 @@ class _DesktopPlayerBar extends StatelessWidget {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
+                    _TransportToggleButton(
+                      icon: Icons.shuffle_rounded,
+                      enabled: controller.hasMusic,
+                      selected: controller.isShuffleEnabled,
+                      onTap: controller.toggleShuffle,
+                    ),
+                    const SizedBox(width: 10),
                     _TransportButton(
                       icon: Icons.skip_previous_rounded,
                       enabled: track != null,
@@ -915,6 +1092,13 @@ class _DesktopPlayerBar extends StatelessWidget {
                       icon: Icons.skip_next_rounded,
                       enabled: track != null,
                       onTap: controller.skipNext,
+                    ),
+                    const SizedBox(width: 10),
+                    _TransportToggleButton(
+                      icon: Icons.repeat_rounded,
+                      enabled: controller.hasMusic,
+                      selected: controller.isRepeatEnabled,
+                      onTap: controller.toggleRepeat,
                     ),
                   ],
                 ),
@@ -1038,7 +1222,7 @@ class _HeroPanel extends StatelessWidget {
             title: track?.album ?? 'ChiMusic',
             palette:
                 track?.palette ??
-                const <Color>[
+                <Color>[
                   _DesktopPalette.accent,
                   _DesktopPalette.accentSoft,
                   _DesktopPalette.bg3,
@@ -1183,6 +1367,13 @@ class _NowPlayingMeta extends StatelessWidget {
         const SizedBox(height: 26),
         Row(
           children: [
+            _TransportToggleButton(
+              icon: Icons.shuffle_rounded,
+              enabled: true,
+              selected: controller.isShuffleEnabled,
+              onTap: controller.toggleShuffle,
+            ),
+            const SizedBox(width: 12),
             _TransportButton(
               icon: Icons.skip_previous_rounded,
               enabled: true,
@@ -1202,6 +1393,13 @@ class _NowPlayingMeta extends StatelessWidget {
               icon: Icons.skip_next_rounded,
               enabled: true,
               onTap: controller.skipNext,
+            ),
+            const SizedBox(width: 12),
+            _TransportToggleButton(
+              icon: Icons.repeat_rounded,
+              enabled: true,
+              selected: controller.isRepeatEnabled,
+              onTap: controller.toggleRepeat,
             ),
             const SizedBox(width: 16),
             _RoundIconButton(
@@ -1455,11 +1653,11 @@ class _RecentTrackCard extends StatelessWidget {
                       child: Container(
                         width: 34,
                         height: 34,
-                        decoration: const BoxDecoration(
+                        decoration: BoxDecoration(
                           color: _DesktopPalette.accent,
                           shape: BoxShape.circle,
                         ),
-                        child: const Icon(
+                        child: Icon(
                           Icons.play_arrow_rounded,
                           size: 18,
                           color: _DesktopPalette.bg0,
@@ -1628,7 +1826,7 @@ class _SearchField extends StatelessWidget {
       child: Row(
         children: [
           const SizedBox(width: 12),
-          const Icon(
+          Icon(
             Icons.search_rounded,
             color: _DesktopPalette.textFaint,
             size: 18,
@@ -1638,8 +1836,8 @@ class _SearchField extends StatelessWidget {
             child: TextField(
               controller: controller,
               onChanged: onChanged,
-              style: const TextStyle(color: _DesktopPalette.textPrimary),
-              decoration: const InputDecoration(
+              style: TextStyle(color: _DesktopPalette.textPrimary),
+              decoration: InputDecoration(
                 hintText: '搜索歌曲、歌手、专辑…',
                 hintStyle: TextStyle(color: _DesktopPalette.textFaint),
                 border: InputBorder.none,
@@ -1649,7 +1847,7 @@ class _SearchField extends StatelessWidget {
           if (controller.text.isNotEmpty)
             IconButton(
               onPressed: onClear,
-              icon: const Icon(
+              icon: Icon(
                 Icons.close_rounded,
                 color: _DesktopPalette.textMuted,
                 size: 18,
@@ -1827,18 +2025,59 @@ class _TransportButton extends StatelessWidget {
   }
 }
 
+class _TransportToggleButton extends StatelessWidget {
+  const _TransportToggleButton({
+    required this.icon,
+    required this.enabled,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final bool enabled;
+  final bool selected;
+  final Future<void> Function() onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: enabled ? () => onTap() : null,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        width: 34,
+        height: 34,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: selected
+              ? _DesktopPalette.accent.withValues(alpha: 0.16)
+              : Colors.transparent,
+        ),
+        child: Icon(
+          icon,
+          size: 18,
+          color: selected
+              ? _DesktopPalette.accent
+              : (enabled
+                    ? _DesktopPalette.textMuted
+                    : _DesktopPalette.textFaint),
+        ),
+      ),
+    );
+  }
+}
+
 class _RoundIconButton extends StatelessWidget {
   const _RoundIconButton({
     required this.icon,
     required this.onTap,
     this.tooltip,
-    this.color = _DesktopPalette.textMuted,
+    this.color,
   });
 
   final IconData icon;
   final VoidCallback onTap;
   final String? tooltip;
-  final Color color;
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
@@ -1855,7 +2094,11 @@ class _RoundIconButton extends StatelessWidget {
             color: _DesktopPalette.bg3,
             border: Border.all(color: _DesktopPalette.borderStrong),
           ),
-          child: Icon(icon, size: 16, color: color),
+          child: Icon(
+            icon,
+            size: 16,
+            color: color ?? _DesktopPalette.textMuted,
+          ),
         ),
       ),
     );
@@ -1916,7 +2159,7 @@ class _InlineStatus extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(
+          Icon(
             Icons.info_outline_rounded,
             size: 18,
             color: _DesktopPalette.accent,
@@ -2009,9 +2252,7 @@ class _PageSectionTitle extends StatelessWidget {
       children.add(trailingWidget);
     }
 
-    return Row(
-      children: children,
-    );
+    return Row(children: children);
   }
 }
 
@@ -2064,60 +2305,97 @@ class _Tag extends StatelessWidget {
 }
 
 class _DesktopPalette {
-  static const bg0 = Color(0xFF0A0A0B);
-  static const bg1 = Color(0xFF111113);
-  static const bg2 = Color(0xFF181819);
-  static const bg3 = Color(0xFF222224);
-  static const bg4 = Color(0xFF2C2C2F);
-  static const accent = Color(0xFFC9A96E);
-  static const accentSoft = Color(0xFFE8C98A);
-  static const textPrimary = Color(0xFFF0EDE8);
-  static const textMuted = Color(0xFFB8B4AC);
-  static const textFaint = Color(0xFF787470);
-  static const border = Color(0x14FFFFFF);
-  static const borderStrong = Color(0x1FFFFFFF);
+  static Color bg0 = const Color(0xFF0A0A0B);
+  static Color bg1 = const Color(0xFF111113);
+  static Color bg2 = const Color(0xFF181819);
+  static Color bg3 = const Color(0xFF222224);
+  static Color bg4 = const Color(0xFF2C2C2F);
+  static Color accent = const Color(0xFFC9A96E);
+  static Color accentSoft = const Color(0xFFE8C98A);
+  static Color textPrimary = const Color(0xFFF0EDE8);
+  static Color textMuted = const Color(0xFFB8B4AC);
+  static Color textFaint = const Color(0xFF787470);
+  static Color border = const Color(0x14FFFFFF);
+  static Color borderStrong = const Color(0x1FFFFFFF);
+  static Color backdropMid = const Color(0xFF0D0D0F);
+  static Color backdropEnd = const Color(0xFF14110C);
+
+  static void syncWith(Brightness brightness) {
+    if (brightness == Brightness.light) {
+      bg0 = const Color(0xFFF2EDE1);
+      bg1 = const Color(0xFFEDE7DA);
+      bg2 = const Color(0xFFE6DFCF);
+      bg3 = const Color(0xFFDDD5C4);
+      bg4 = const Color(0xFFCEC5B3);
+      accent = const Color(0xFFC07A92);
+      accentSoft = const Color(0xFFD3A9B4);
+      textPrimary = const Color(0xFF2C2018);
+      textMuted = const Color(0xFF6B5240);
+      textFaint = const Color(0xFF9A8470);
+      border = const Color(0x142C2018);
+      borderStrong = const Color(0x1F2C2018);
+      backdropMid = const Color(0xFFEDE7DA);
+      backdropEnd = const Color(0xFFE8DCCF);
+      return;
+    }
+
+    bg0 = const Color(0xFF0A0A0B);
+    bg1 = const Color(0xFF111113);
+    bg2 = const Color(0xFF181819);
+    bg3 = const Color(0xFF222224);
+    bg4 = const Color(0xFF2C2C2F);
+    accent = const Color(0xFFC9A96E);
+    accentSoft = const Color(0xFFE8C98A);
+    textPrimary = const Color(0xFFF0EDE8);
+    textMuted = const Color(0xFFB8B4AC);
+    textFaint = const Color(0xFF787470);
+    border = const Color(0x14FFFFFF);
+    borderStrong = const Color(0x1FFFFFFF);
+    backdropMid = const Color(0xFF0D0D0F);
+    backdropEnd = const Color(0xFF14110C);
+  }
 }
 
 class _DesktopTypography {
-  static const display = TextStyle(
+  static TextStyle get display => TextStyle(
     fontSize: 38,
     fontWeight: FontWeight.w300,
     height: 1.08,
     color: _DesktopPalette.textPrimary,
   );
 
-  static const section = TextStyle(
+  static TextStyle get section => TextStyle(
     fontSize: 22,
     fontWeight: FontWeight.w400,
     color: _DesktopPalette.textPrimary,
   );
 
-  static const stat = TextStyle(
+  static TextStyle get stat => TextStyle(
     fontSize: 34,
     fontWeight: FontWeight.w300,
     color: _DesktopPalette.accentSoft,
   );
 
-  static const body = TextStyle(
+  static TextStyle get body => TextStyle(
     fontSize: 13,
     fontWeight: FontWeight.w400,
     color: _DesktopPalette.textPrimary,
   );
 
-  static const small = TextStyle(
+  static TextStyle get small => TextStyle(
     fontSize: 11,
     fontWeight: FontWeight.w400,
     color: _DesktopPalette.textMuted,
   );
 
-  static const mono = TextStyle(
+  static TextStyle get mono => TextStyle(
     fontSize: 11,
     fontWeight: FontWeight.w400,
     color: _DesktopPalette.textMuted,
     letterSpacing: 0.4,
   );
 
-  static const overline = TextStyle(
+  static TextStyle get overline => TextStyle(
     fontSize: 10,
     fontWeight: FontWeight.w500,
     color: _DesktopPalette.textFaint,

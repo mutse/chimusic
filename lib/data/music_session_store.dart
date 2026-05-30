@@ -28,6 +28,9 @@ class MusicSessionSnapshot {
     this.userProfile,
     this.aiSearchTrialsRemaining = 2,
     this.hasUnlockedAiUpsell = false,
+    this.themeMode = AppThemeMode.dark,
+    this.isShuffleEnabled = false,
+    this.isRepeatEnabled = false,
   });
 
   final List<Track> tracks;
@@ -48,6 +51,9 @@ class MusicSessionSnapshot {
   final UserProfile? userProfile;
   final int aiSearchTrialsRemaining;
   final bool hasUnlockedAiUpsell;
+  final AppThemeMode themeMode;
+  final bool isShuffleEnabled;
+  final bool isRepeatEnabled;
 
   Map<String, Object?> toJson() {
     return <String, Object?>{
@@ -73,6 +79,9 @@ class MusicSessionSnapshot {
           : _userProfileToJson(userProfile!),
       'aiSearchTrialsRemaining': aiSearchTrialsRemaining,
       'hasUnlockedAiUpsell': hasUnlockedAiUpsell,
+      'themeMode': themeMode.name,
+      'isShuffleEnabled': isShuffleEnabled,
+      'isRepeatEnabled': isRepeatEnabled,
     };
   }
 
@@ -125,6 +134,13 @@ class MusicSessionSnapshot {
           : null,
       aiSearchTrialsRemaining: (json['aiSearchTrialsRemaining'] as int?) ?? 2,
       hasUnlockedAiUpsell: (json['hasUnlockedAiUpsell'] as bool?) ?? false,
+      themeMode: _enumByName(
+        AppThemeMode.values,
+        json['themeMode'] as String?,
+        AppThemeMode.dark,
+      ),
+      isShuffleEnabled: (json['isShuffleEnabled'] as bool?) ?? false,
+      isRepeatEnabled: (json['isRepeatEnabled'] as bool?) ?? false,
     );
   }
 }

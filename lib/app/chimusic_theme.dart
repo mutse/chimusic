@@ -14,39 +14,56 @@ class LiquidPalette {
   static const Color softWhite = Color(0xFFF7F9FC);
 }
 
-ThemeData buildChiMusicTheme() {
-  const scheme = ColorScheme.dark(
-    primary: LiquidPalette.aqua,
-    secondary: LiquidPalette.mint,
-    tertiary: LiquidPalette.coral,
-    surface: LiquidPalette.surface,
-    onPrimary: LiquidPalette.ink,
-    onSecondary: LiquidPalette.ink,
-    onSurface: LiquidPalette.softWhite,
-  );
+ThemeData buildChiMusicTheme({Brightness brightness = Brightness.dark}) {
+  final isDark = brightness == Brightness.dark;
+  final scheme = isDark
+      ? const ColorScheme.dark(
+          primary: LiquidPalette.aqua,
+          secondary: LiquidPalette.mint,
+          tertiary: LiquidPalette.coral,
+          surface: LiquidPalette.surface,
+          onPrimary: LiquidPalette.ink,
+          onSecondary: LiquidPalette.ink,
+          onSurface: LiquidPalette.softWhite,
+        )
+      : const ColorScheme.light(
+          primary: Color(0xFFC07A92),
+          secondary: Color(0xFFD3A9B4),
+          tertiary: Color(0xFFB8864D),
+          surface: Color(0xFFEDE7DA),
+          onPrimary: Color(0xFFF8F3EA),
+          onSecondary: Color(0xFF2C2018),
+          onSurface: Color(0xFF2C2018),
+        );
 
   final base = ThemeData(
     useMaterial3: true,
-    brightness: Brightness.dark,
+    brightness: brightness,
     colorScheme: scheme,
   );
 
   final textTheme = base.textTheme.apply(
-    bodyColor: LiquidPalette.softWhite,
-    displayColor: LiquidPalette.softWhite,
+    bodyColor: isDark ? LiquidPalette.softWhite : const Color(0xFF2C2018),
+    displayColor: isDark ? LiquidPalette.softWhite : const Color(0xFF2C2018),
   );
 
   return base.copyWith(
     scaffoldBackgroundColor: Colors.transparent,
     canvasColor: Colors.transparent,
     splashFactory: InkSparkle.splashFactory,
-    dividerColor: Colors.white.withValues(alpha: 0.08),
-    iconTheme: const IconThemeData(color: LiquidPalette.softWhite),
-    appBarTheme: const AppBarTheme(
+    dividerColor: isDark
+        ? Colors.white.withValues(alpha: 0.08)
+        : const Color(0x1A2C2018),
+    iconTheme: IconThemeData(
+      color: isDark ? LiquidPalette.softWhite : const Color(0xFF2C2018),
+    ),
+    appBarTheme: AppBarTheme(
       backgroundColor: Colors.transparent,
       elevation: 0,
       surfaceTintColor: Colors.transparent,
-      foregroundColor: LiquidPalette.softWhite,
+      foregroundColor: isDark
+          ? LiquidPalette.softWhite
+          : const Color(0xFF2C2018),
     ),
     textTheme: textTheme.copyWith(
       displaySmall: textTheme.displaySmall?.copyWith(
@@ -80,18 +97,21 @@ ThemeData buildChiMusicTheme() {
     ),
     inputDecorationTheme: InputDecorationTheme(
       hintStyle: textTheme.bodyMedium?.copyWith(
-        color: LiquidPalette.moon.withValues(alpha: 0.54),
+        color: (isDark ? LiquidPalette.moon : const Color(0xFF6B5240))
+            .withValues(alpha: 0.54),
       ),
       border: InputBorder.none,
       enabledBorder: InputBorder.none,
       focusedBorder: InputBorder.none,
       contentPadding: EdgeInsets.zero,
     ),
-    sliderTheme: const SliderThemeData(
-      overlayShape: RoundSliderOverlayShape(overlayRadius: 18),
-      thumbShape: RoundSliderThumbShape(enabledThumbRadius: 6),
-      activeTrackColor: LiquidPalette.aqua,
-      inactiveTrackColor: Color(0x33232A36),
+    sliderTheme: SliderThemeData(
+      overlayShape: const RoundSliderOverlayShape(overlayRadius: 18),
+      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+      activeTrackColor: isDark ? LiquidPalette.aqua : const Color(0xFFC07A92),
+      inactiveTrackColor: isDark
+          ? const Color(0x33232A36)
+          : const Color(0x332C2018),
       trackHeight: 4,
     ),
     pageTransitionsTheme: const PageTransitionsTheme(

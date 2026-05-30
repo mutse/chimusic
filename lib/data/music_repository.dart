@@ -10,6 +10,7 @@ import 'music_session_store.dart';
 
 const String _databaseFileName = 'chimusic_v1.db';
 const String _legacyMigrationStateKey = 'chimusic.sqlite.migrated.v1';
+const int _databaseVersion = 2;
 
 class MusicRepositorySnapshot {
   const MusicRepositorySnapshot({
@@ -30,6 +31,9 @@ class MusicRepositorySnapshot {
     this.userProfile,
     this.aiSearchTrialsRemaining = 2,
     this.hasUnlockedAiUpsell = false,
+    this.themeMode = AppThemeMode.dark,
+    this.isShuffleEnabled = false,
+    this.isRepeatEnabled = false,
   });
 
   final List<Track> tracks;
@@ -49,6 +53,9 @@ class MusicRepositorySnapshot {
   final UserProfile? userProfile;
   final int aiSearchTrialsRemaining;
   final bool hasUnlockedAiUpsell;
+  final AppThemeMode themeMode;
+  final bool isShuffleEnabled;
+  final bool isRepeatEnabled;
 }
 
 abstract class MusicRepository {
@@ -97,6 +104,9 @@ class LegacySessionStoreRepository implements MusicRepository {
       userProfile: snapshot.userProfile,
       aiSearchTrialsRemaining: snapshot.aiSearchTrialsRemaining,
       hasUnlockedAiUpsell: snapshot.hasUnlockedAiUpsell,
+      themeMode: snapshot.themeMode,
+      isShuffleEnabled: snapshot.isShuffleEnabled,
+      isRepeatEnabled: snapshot.isRepeatEnabled,
     );
   }
 
@@ -122,6 +132,9 @@ class LegacySessionStoreRepository implements MusicRepository {
         userProfile: snapshot.userProfile,
         aiSearchTrialsRemaining: snapshot.aiSearchTrialsRemaining,
         hasUnlockedAiUpsell: snapshot.hasUnlockedAiUpsell,
+        themeMode: snapshot.themeMode,
+        isShuffleEnabled: snapshot.isShuffleEnabled,
+        isRepeatEnabled: snapshot.isRepeatEnabled,
       ),
     );
   }
@@ -195,6 +208,13 @@ class SqliteMusicRepository implements MusicRepository {
           (uiState['ai_search_trials_remaining'] as int?) ?? 2,
       hasUnlockedAiUpsell:
           (uiState['has_unlocked_ai_upsell'] as int? ?? 0) == 1,
+      themeMode: _enumByName(
+        AppThemeMode.values,
+        uiState['theme_mode'] as String?,
+        AppThemeMode.dark,
+      ),
+      isShuffleEnabled: (uiState['shuffle_enabled'] as int? ?? 0) == 1,
+      isRepeatEnabled: (uiState['repeat_enabled'] as int? ?? 0) == 1,
     );
   }
 
@@ -251,7 +271,7 @@ class SqliteMusicRepository implements MusicRepository {
     final databasePath = path.join(databasesPath, _databaseFileName);
     final db = await openDatabase(
       databasePath,
-      version: 1,
+      version: _databaseVersion,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE tracks(
@@ -336,7 +356,10 @@ class SqliteMusicRepository implements MusicRepository {
             recent_searches_json TEXT NOT NULL,
             user_profile_json TEXT,
             ai_search_trials_remaining INTEGER NOT NULL,
-            has_unlocked_ai_upsell INTEGER NOT NULL
+            has_unlocked_ai_upsell INTEGER NOT NULL,
+            theme_mode TEXT NOT NULL,
+            shuffle_enabled INTEGER NOT NULL,
+            repeat_enabled INTEGER NOT NULL
           )
         ''');
         await db.insert(
@@ -347,6 +370,19 @@ class SqliteMusicRepository implements MusicRepository {
           'ui_state',
           _uiStateToRow(const MusicRepositorySnapshot()),
         );
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute(
+            'ALTER TABLE ui_state ADD COLUMN theme_mode TEXT NOT NULL DEFAULT \'dark\'',
+          );
+          await db.execute(
+            'ALTER TABLE ui_state ADD COLUMN shuffle_enabled INTEGER NOT NULL DEFAULT 0',
+          );
+          await db.execute(
+            'ALTER TABLE ui_state ADD COLUMN repeat_enabled INTEGER NOT NULL DEFAULT 0',
+          );
+        }
       },
     );
     _database = db;
@@ -405,6 +441,9 @@ class SqliteMusicRepository implements MusicRepository {
       userProfile: legacySnapshot.userProfile,
       aiSearchTrialsRemaining: legacySnapshot.aiSearchTrialsRemaining,
       hasUnlockedAiUpsell: legacySnapshot.hasUnlockedAiUpsell,
+      themeMode: legacySnapshot.themeMode,
+      isShuffleEnabled: legacySnapshot.isShuffleEnabled,
+      isRepeatEnabled: legacySnapshot.isRepeatEnabled,
     );
     await save(migratedSnapshot);
     await preferences.setBool(_legacyMigrationStateKey, true);
@@ -656,6 +695,9 @@ Map<String, Object?> _uiStateToRow(MusicRepositorySnapshot snapshot) {
     'user_profile_json': _encodeUserProfile(snapshot.userProfile),
     'ai_search_trials_remaining': snapshot.aiSearchTrialsRemaining,
     'has_unlocked_ai_upsell': snapshot.hasUnlockedAiUpsell ? 1 : 0,
+    'theme_mode': snapshot.themeMode.name,
+    'shuffle_enabled': snapshot.isShuffleEnabled ? 1 : 0,
+    'repeat_enabled': snapshot.isRepeatEnabled ? 1 : 0,
   };
 }
 

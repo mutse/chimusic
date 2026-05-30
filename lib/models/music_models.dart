@@ -16,6 +16,15 @@ extension MusicTabX on MusicTab {
   };
 }
 
+enum AppThemeMode { dark, light }
+
+extension AppThemeModeX on AppThemeMode {
+  String get label => switch (this) {
+    AppThemeMode.dark => 'Dark',
+    AppThemeMode.light => 'Light',
+  };
+}
+
 enum LibraryFilter {
   all,
   tracks,
