@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -40,6 +41,8 @@ class _MacosPlayerShellState extends State<MacosPlayerShell> {
   late final TextEditingController _librarySearchController;
   var _page = _DesktopPage.home;
   bool _didBootstrap = false;
+  Timer? _toastTimer;
+  String? _observedStatusMessage;
 
   @override
   void initState() {
@@ -49,6 +52,7 @@ class _MacosPlayerShellState extends State<MacosPlayerShell> {
 
   @override
   void dispose() {
+    _toastTimer?.cancel();
     _librarySearchController.dispose();
     super.dispose();
   }
@@ -154,17 +158,11 @@ class _MacosPlayerShellState extends State<MacosPlayerShell> {
       }
 
       controller.setStatusMessage('已导出播放记录到 ${location.path}');
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('已导出播放记录到 ${location.path}')));
     } catch (_) {
       if (!mounted) {
         return;
       }
       controller.setStatusMessage('导出播放记录失败，请重试。');
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('导出播放记录失败，请重试。')));
     }
   }
 
@@ -238,10 +236,33 @@ class _MacosPlayerShellState extends State<MacosPlayerShell> {
     return '"$escaped"';
   }
 
+  void _syncStatusLifecycle(MusicAppController controller) {
+    final message = controller.statusMessage;
+    if (_observedStatusMessage == message) {
+      return;
+    }
+
+    _observedStatusMessage = message;
+    _toastTimer?.cancel();
+    if (message == null || message.trim().isEmpty) {
+      return;
+    }
+
+    _toastTimer = Timer(const Duration(seconds: 4), () {
+      if (!mounted) {
+        return;
+      }
+      if (controller.statusMessage == message) {
+        controller.clearStatusMessage();
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = ChiMusicScope.watch(context);
     _bootstrapFromController(controller);
+    _syncStatusLifecycle(controller);
     _DesktopPalette.syncWith(
       controller.themeMode == AppThemeMode.light
           ? Brightness.light
@@ -250,7 +271,9 @@ class _MacosPlayerShellState extends State<MacosPlayerShell> {
 
     return Scaffold(
       backgroundColor: _DesktopPalette.bg0,
-      body: DecoratedBox(
+      body: AnimatedContainer(
+        duration: const Duration(milliseconds: 360),
+        curve: Curves.easeInOutCubic,
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
@@ -264,74 +287,128 @@ class _MacosPlayerShellState extends State<MacosPlayerShell> {
         ),
         child: SafeArea(
           bottom: false,
-          child: Column(
+          child: Stack(
             children: [
-              Expanded(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    SizedBox(
-                      width: 260,
-                      child: _DesktopSidebar(
-                        page: _page,
-                        onSelectPage: (page) => _setPage(page, controller),
-                      ),
-                    ),
-                    Expanded(
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          border: Border(
-                            left: BorderSide(color: _DesktopPalette.border),
+              Column(
+                children: [
+                  Expanded(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SizedBox(
+                          width: 260,
+                          child: _DesktopSidebar(
+                            page: _page,
+                            onSelectPage: (page) => _setPage(page, controller),
                           ),
                         ),
-                        child: AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 220),
-                          switchInCurve: Curves.easeOutCubic,
-                          switchOutCurve: Curves.easeInCubic,
-                          child: KeyedSubtree(
-                            key: ValueKey(_page),
-                            child: switch (_page) {
-                              _DesktopPage.home => _DesktopHomePage(
-                                onOpenLibrary: () =>
-                                    _setPage(_DesktopPage.library, controller),
-                                onOpenNowPlaying: () => _setPage(
-                                  _DesktopPage.nowPlaying,
-                                  controller,
-                                ),
+                        Expanded(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              border: Border(
+                                left: BorderSide(color: _DesktopPalette.border),
                               ),
-                              _DesktopPage.library => _DesktopLibraryPage(
-                                controller: controller,
-                                searchController: _librarySearchController,
-                                tracks: _resolveLibraryTracks(controller),
-                                onSearchChanged: (value) {
-                                  controller.updateSearchQuery(value);
+                            ),
+                            child: AnimatedSwitcher(
+                              duration: const Duration(milliseconds: 260),
+                              switchInCurve: Curves.easeOutCubic,
+                              switchOutCurve: Curves.easeInCubic,
+                              transitionBuilder: (child, animation) {
+                                return FadeTransition(
+                                  opacity: animation,
+                                  child: SlideTransition(
+                                    position: Tween<Offset>(
+                                      begin: const Offset(0, 0.02),
+                                      end: Offset.zero,
+                                    ).animate(animation),
+                                    child: child,
+                                  ),
+                                );
+                              },
+                              child: KeyedSubtree(
+                                key: ValueKey(_page),
+                                child: switch (_page) {
+                                  _DesktopPage.home => _DesktopHomePage(
+                                    onOpenLibrary: () => _setPage(
+                                      _DesktopPage.library,
+                                      controller,
+                                    ),
+                                    onOpenNowPlaying: () => _setPage(
+                                      _DesktopPage.nowPlaying,
+                                      controller,
+                                    ),
+                                  ),
+                                  _DesktopPage.library => _DesktopLibraryPage(
+                                    controller: controller,
+                                    searchController: _librarySearchController,
+                                    tracks: _resolveLibraryTracks(controller),
+                                    onSearchChanged: (value) {
+                                      controller.updateSearchQuery(value);
+                                    },
+                                    onClearSearch: () {
+                                      _librarySearchController.clear();
+                                      controller.clearSearch();
+                                    },
+                                  ),
+                                  _DesktopPage.nowPlaying =>
+                                    _DesktopNowPlayingPage(
+                                      onOpenLibrary: () => _setPage(
+                                        _DesktopPage.library,
+                                        controller,
+                                      ),
+                                    ),
+                                  _DesktopPage.history => _DesktopHistoryPage(
+                                    onExport: (format) =>
+                                        _exportHistory(controller, format),
+                                    onOpenLibrary: () => _setPage(
+                                      _DesktopPage.library,
+                                      controller,
+                                    ),
+                                  ),
                                 },
-                                onClearSearch: () {
-                                  _librarySearchController.clear();
-                                  controller.clearSearch();
-                                },
                               ),
-                              _DesktopPage.nowPlaying => _DesktopNowPlayingPage(
-                                onOpenLibrary: () =>
-                                    _setPage(_DesktopPage.library, controller),
-                              ),
-                              _DesktopPage.history => _DesktopHistoryPage(
-                                onExport: (format) =>
-                                    _exportHistory(controller, format),
-                                onOpenLibrary: () =>
-                                    _setPage(_DesktopPage.library, controller),
-                              ),
-                            },
+                            ),
                           ),
                         ),
-                      ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                  _DesktopPlayerBar(
+                    onOpenNowPlaying: () =>
+                        _setPage(_DesktopPage.nowPlaying, controller),
+                  ),
+                ],
               ),
-              _DesktopPlayerBar(
-                onOpenNowPlaying: () =>
-                    _setPage(_DesktopPage.nowPlaying, controller),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 116,
+                child: Center(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 220),
+                    switchInCurve: Curves.easeOutCubic,
+                    switchOutCurve: Curves.easeInCubic,
+                    transitionBuilder: (child, animation) {
+                      return FadeTransition(
+                        opacity: animation,
+                        child: SlideTransition(
+                          position: Tween<Offset>(
+                            begin: const Offset(0, 0.16),
+                            end: Offset.zero,
+                          ).animate(animation),
+                          child: child,
+                        ),
+                      );
+                    },
+                    child: controller.statusMessage == null
+                        ? const SizedBox.shrink()
+                        : _DesktopToast(
+                            key: ValueKey(controller.statusMessage),
+                            message: controller.statusMessage!,
+                            onClose: controller.clearStatusMessage,
+                          ),
+                  ),
+                ),
               ),
             ],
           ),
@@ -352,7 +429,9 @@ class _DesktopSidebar extends StatelessWidget {
     final controller = ChiMusicScope.watch(context);
     final collections = controller.pinnedCollections;
 
-    return Container(
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeInOutCubic,
       color: _DesktopPalette.bg1,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -393,7 +472,14 @@ class _DesktopSidebar extends StatelessWidget {
                   tooltip: controller.themeMode == AppThemeMode.light
                       ? '切换到深色'
                       : '切换到浅色',
-                  onTap: controller.toggleThemeMode,
+                  onTap: () {
+                    controller.toggleThemeMode();
+                    controller.setStatusMessage(
+                      controller.themeMode == AppThemeMode.light
+                          ? '已切换到浅色外观。'
+                          : '已切换到深色外观。',
+                    );
+                  },
                 ),
                 const SizedBox(width: 8),
                 _RoundIconButton(
@@ -520,11 +606,6 @@ class _DesktopHomePage extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (controller.statusMessage case final message?)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 18),
-              child: _InlineStatus(message: message),
-            ),
           _HeroPanel(
             controller: controller,
             track: heroTrack,
@@ -995,7 +1076,9 @@ class _DesktopPlayerBar extends StatelessWidget {
         : (controller.currentCollection ??
               controller.collectionForTrack(track));
 
-    return Container(
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeInOutCubic,
       height: 100,
       padding: const EdgeInsets.symmetric(horizontal: 28),
       decoration: BoxDecoration(
@@ -1710,7 +1793,9 @@ class _SidebarCollectionButton extends StatelessWidget {
       onTap: () {
         Navigator.of(context).push(CollectionDetailPage.route(collection));
       },
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeInOutCubic,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(10),
@@ -1720,7 +1805,9 @@ class _SidebarCollectionButton extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Container(
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeInOutCubic,
               width: 7,
               height: 7,
               decoration: BoxDecoration(
@@ -1770,7 +1857,9 @@ class _SidebarNavButton extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(10),
-        child: Container(
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeInOutCubic,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(10),
@@ -2043,7 +2132,9 @@ class _TransportToggleButton extends StatelessWidget {
     return InkWell(
       onTap: enabled ? () => onTap() : null,
       borderRadius: BorderRadius.circular(999),
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeInOutCubic,
         width: 34,
         height: 34,
         decoration: BoxDecoration(
@@ -2086,7 +2177,9 @@ class _RoundIconButton extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(999),
-        child: Container(
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeInOutCubic,
           width: 32,
           height: 32,
           decoration: BoxDecoration(
@@ -2094,10 +2187,24 @@ class _RoundIconButton extends StatelessWidget {
             color: _DesktopPalette.bg3,
             border: Border.all(color: _DesktopPalette.borderStrong),
           ),
-          child: Icon(
-            icon,
-            size: 16,
-            color: color ?? _DesktopPalette.textMuted,
+          child: Center(
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 180),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              transitionBuilder: (child, animation) {
+                return FadeTransition(
+                  opacity: animation,
+                  child: ScaleTransition(scale: animation, child: child),
+                );
+              },
+              child: Icon(
+                icon,
+                key: ValueKey(icon),
+                size: 16,
+                color: color ?? _DesktopPalette.textMuted,
+              ),
+            ),
           ),
         ),
       ),
@@ -2120,7 +2227,9 @@ class _SurfaceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final body = Container(
+    final body = AnimatedContainer(
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeInOutCubic,
       padding: padding,
       decoration: BoxDecoration(
         color: background ?? _DesktopPalette.bg2,
@@ -2142,38 +2251,70 @@ class _SurfaceCard extends StatelessWidget {
   }
 }
 
-class _InlineStatus extends StatelessWidget {
-  const _InlineStatus({required this.message});
+class _DesktopToast extends StatelessWidget {
+  const _DesktopToast({
+    super.key,
+    required this.message,
+    required this.onClose,
+  });
 
   final String message;
+  final VoidCallback onClose;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      decoration: BoxDecoration(
-        color: _DesktopPalette.bg2,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: _DesktopPalette.borderStrong),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            Icons.info_outline_rounded,
-            size: 18,
-            color: _DesktopPalette.accent,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              message,
-              style: _DesktopTypography.body.copyWith(
-                color: _DesktopPalette.textPrimary,
+    return Material(
+      color: Colors.transparent,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeInOutCubic,
+        constraints: const BoxConstraints(maxWidth: 560),
+        margin: const EdgeInsets.symmetric(horizontal: 24),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        decoration: BoxDecoration(
+          color: _DesktopPalette.bg3.withValues(alpha: 0.94),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: _DesktopPalette.borderStrong),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.14),
+              blurRadius: 24,
+              offset: const Offset(0, 14),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.info_outline_rounded,
+              size: 18,
+              color: _DesktopPalette.accent,
+            ),
+            const SizedBox(width: 10),
+            Flexible(
+              child: Text(
+                message,
+                style: _DesktopTypography.body.copyWith(
+                  color: _DesktopPalette.textPrimary,
+                ),
               ),
             ),
-          ),
-        ],
+            const SizedBox(width: 8),
+            InkWell(
+              onTap: onClose,
+              borderRadius: BorderRadius.circular(999),
+              child: Padding(
+                padding: const EdgeInsets.all(4),
+                child: Icon(
+                  Icons.close_rounded,
+                  size: 16,
+                  color: _DesktopPalette.textMuted,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -2290,7 +2431,9 @@ class _Tag extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeInOutCubic,
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
         color: _DesktopPalette.accent.withValues(alpha: 0.12),
