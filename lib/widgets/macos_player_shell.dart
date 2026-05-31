@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
@@ -794,6 +796,7 @@ class _DesktopLibraryPage extends StatelessWidget {
                         track: track,
                         indexLabel: '${index + 1}',
                         showAlbum: true,
+                        revealTrailingOnHover: true,
                         trailing: IconButton(
                           tooltip: controller.isTrackLiked(track.id)
                               ? '取消喜欢'
@@ -850,112 +853,209 @@ class _DesktopNowPlayingPage extends StatelessWidget {
       );
     }
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(40, 40, 40, 34),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(child: Text('正在播放', style: _DesktopTypography.display)),
-              _Tag(label: collection?.title ?? 'Current Queue'),
-            ],
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 720),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          layoutBuilder: (currentChild, previousChildren) {
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                ...previousChildren,
+                ...?switch (currentChild) {
+                  null => null,
+                  final child => <Widget>[child],
+                },
+              ],
+            );
+          },
+          transitionBuilder: (child, animation) {
+            return FadeTransition(opacity: animation, child: child);
+          },
+          child: _NowPlayingAtmosphere(
+            key: ValueKey('np-atmo-${track.id}'),
+            track: track,
           ),
-          const SizedBox(height: 24),
-          _SurfaceCard(
-            padding: const EdgeInsets.all(28),
-            background: Color.alphaBlend(
-              track.palette.first.withValues(alpha: 0.14),
-              _DesktopPalette.bg2,
-            ),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final stacked = constraints.maxWidth < 920;
-
-                final art = ArtworkCover(
-                  title: track.album,
-                  palette: track.palette,
-                  artworkUri: track.artworkUri,
-                  size: stacked ? 240 : 280,
-                  showTitle: true,
-                  icon: Icons.music_note_rounded,
-                );
-
-                final meta = _NowPlayingMeta(
-                  track: track,
-                  collection: collection,
-                );
-
-                if (stacked) {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+        ),
+        SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(40, 40, 40, 34),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text('正在播放', style: _DesktopTypography.display),
+                  ),
+                  _Tag(label: collection?.title ?? 'Current Queue'),
+                ],
+              ),
+              const SizedBox(height: 24),
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 560),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                layoutBuilder: (currentChild, previousChildren) {
+                  return Stack(
+                    alignment: Alignment.topCenter,
                     children: [
-                      Center(child: art),
-                      const SizedBox(height: 24),
-                      meta,
+                      ...previousChildren,
+                      ...?switch (currentChild) {
+                        null => null,
+                        final child => <Widget>[child],
+                      },
                     ],
                   );
-                }
-
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    art,
-                    const SizedBox(width: 28),
-                    Expanded(child: meta),
-                  ],
-                );
-              },
-            ),
-          ),
-          const SizedBox(height: 28),
-          _SurfaceCard(
-            padding: const EdgeInsets.all(22),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('接下来播放', style: _DesktopTypography.section),
-                const SizedBox(height: 14),
-                if (controller.upNext.isEmpty)
-                  Text(
-                    '当前队列在这首歌后没有更多内容了。',
-                    style: _DesktopTypography.body.copyWith(
-                      color: _DesktopPalette.textMuted,
+                },
+                transitionBuilder: (child, animation) {
+                  return FadeTransition(
+                    opacity: animation,
+                    child: ScaleTransition(
+                      scale: Tween<double>(
+                        begin: 0.988,
+                        end: 1,
+                      ).animate(animation),
+                      child: child,
                     ),
-                  )
-                else
-                  Column(
-                    children: [
-                      for (
-                        var index = 0;
-                        index < controller.upNext.length;
-                        index++
-                      ) ...[
-                        _DesktopTrackRow(
-                          track: controller.upNext[index],
-                          indexLabel: '${index + 1}',
-                          showAlbum: false,
-                          trailing: Text(
-                            formatDuration(controller.upNext[index].duration),
-                            style: _DesktopTypography.mono.copyWith(
+                  );
+                },
+                child: _NowPlayingReveal(
+                  key: ValueKey('np-hero-${track.id}'),
+                  delay: const Duration(milliseconds: 40),
+                  child: _NowPlayingHeroSurface(
+                    track: track,
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final stacked = constraints.maxWidth < 920;
+
+                        final art = _NowPlayingReveal(
+                          key: ValueKey('np-art-${track.id}'),
+                          beginOffset: stacked
+                              ? const Offset(0, 0.05)
+                              : const Offset(-0.04, 0),
+                          child: _NowPlayingArtworkSpotlight(
+                            track: track,
+                            size: stacked ? 240 : 280,
+                            isPlaying: controller.isPlaying,
+                          ),
+                        );
+
+                        final meta = _NowPlayingReveal(
+                          key: ValueKey('np-meta-${track.id}'),
+                          delay: const Duration(milliseconds: 90),
+                          beginOffset: stacked
+                              ? const Offset(0, 0.05)
+                              : const Offset(0.04, 0),
+                          child: _NowPlayingMeta(
+                            track: track,
+                            collection: collection,
+                          ),
+                        );
+
+                        if (stacked) {
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Center(child: art),
+                              const SizedBox(height: 24),
+                              meta,
+                            ],
+                          );
+                        }
+
+                        return Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            art,
+                            const SizedBox(width: 28),
+                            Expanded(child: meta),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 28),
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 480),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                transitionBuilder: (child, animation) {
+                  return FadeTransition(
+                    opacity: animation,
+                    child: SlideTransition(
+                      position: Tween<Offset>(
+                        begin: const Offset(0, 0.028),
+                        end: Offset.zero,
+                      ).animate(animation),
+                      child: child,
+                    ),
+                  );
+                },
+                child: _NowPlayingReveal(
+                  key: ValueKey('np-next-${track.id}'),
+                  delay: const Duration(milliseconds: 170),
+                  beginOffset: const Offset(0, 0.04),
+                  child: _NowPlayingQueueSurface(
+                    track: track,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('接下来播放', style: _DesktopTypography.section),
+                        const SizedBox(height: 14),
+                        if (controller.upNext.isEmpty)
+                          Text(
+                            '当前队列在这首歌后没有更多内容了。',
+                            style: _DesktopTypography.body.copyWith(
                               color: _DesktopPalette.textMuted,
                             ),
+                          )
+                        else
+                          Column(
+                            children: [
+                              for (
+                                var index = 0;
+                                index < controller.upNext.length;
+                                index++
+                              ) ...[
+                                _DesktopTrackRow(
+                                  track: controller.upNext[index],
+                                  indexLabel: '${index + 1}',
+                                  showAlbum: false,
+                                  trailing: Text(
+                                    formatDuration(
+                                      controller.upNext[index].duration,
+                                    ),
+                                    style: _DesktopTypography.mono.copyWith(
+                                      color: _DesktopPalette.textMuted,
+                                    ),
+                                  ),
+                                  onTap: () => controller.playTrack(
+                                    controller.upNext[index],
+                                    collection: controller.currentCollection,
+                                  ),
+                                ),
+                                if (index != controller.upNext.length - 1)
+                                  Divider(
+                                    height: 1,
+                                    color: _DesktopPalette.border,
+                                  ),
+                              ],
+                            ],
                           ),
-                          onTap: () => controller.playTrack(
-                            controller.upNext[index],
-                            collection: controller.currentCollection,
-                          ),
-                        ),
-                        if (index != controller.upNext.length - 1)
-                          Divider(height: 1, color: _DesktopPalette.border),
                       ],
-                    ],
+                    ),
                   ),
-              ],
-            ),
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
@@ -1269,6 +1369,581 @@ class _DesktopPlayerBar extends StatelessWidget {
   }
 }
 
+class _NowPlayingAtmosphere extends StatefulWidget {
+  const _NowPlayingAtmosphere({super.key, required this.track});
+
+  final Track track;
+
+  @override
+  State<_NowPlayingAtmosphere> createState() => _NowPlayingAtmosphereState();
+}
+
+class _NowPlayingAtmosphereState extends State<_NowPlayingAtmosphere>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 16),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+    final isLight = brightness == Brightness.light;
+    final palette = widget.track.palette.isEmpty
+        ? <Color>[
+            _DesktopPalette.accent,
+            _DesktopPalette.accentSoft,
+            _DesktopPalette.bg3,
+          ]
+        : widget.track.palette;
+    final primary = palette.first;
+    final secondary = palette.length > 1
+        ? palette[1]
+        : _DesktopPalette.accentSoft;
+    final tertiary = palette.length > 2 ? palette[2] : _DesktopPalette.bg3;
+
+    return IgnorePointer(
+      child: ClipRect(
+        child: AnimatedBuilder(
+          animation: _controller,
+          builder: (context, child) {
+            final theta = _controller.value * math.pi * 2;
+            final driftX = math.sin(theta);
+            final driftY = math.cos(theta);
+
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        _DesktopPalette.bg0.withValues(alpha: 0),
+                        _DesktopPalette.bg0.withValues(
+                          alpha: isLight ? 0.08 : 0.16,
+                        ),
+                        _DesktopPalette.bg0.withValues(
+                          alpha: isLight ? 0.44 : 0.74,
+                        ),
+                      ],
+                      stops: const [0, 0.42, 1],
+                    ),
+                  ),
+                ),
+                ImageFiltered(
+                  imageFilter: ui.ImageFilter.blur(sigmaX: 88, sigmaY: 88),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      _AtmosphereOrb(
+                        alignment: const Alignment(-0.12, -0.9),
+                        size: const Size(560, 560),
+                        offset: Offset(36 * driftX, 20 * driftY),
+                        colors: [
+                          primary.withValues(alpha: isLight ? 0.28 : 0.22),
+                          secondary.withValues(alpha: isLight ? 0.18 : 0.14),
+                          Colors.transparent,
+                        ],
+                      ),
+                      _AtmosphereOrb(
+                        alignment: const Alignment(0.88, -0.18),
+                        size: const Size(360, 360),
+                        offset: Offset(-28 * driftY, 22 * driftX),
+                        colors: [
+                          secondary.withValues(alpha: isLight ? 0.2 : 0.16),
+                          tertiary.withValues(alpha: isLight ? 0.14 : 0.1),
+                          Colors.transparent,
+                        ],
+                      ),
+                      _AtmosphereOrb(
+                        alignment: const Alignment(-0.84, 0.16),
+                        size: const Size(300, 300),
+                        offset: Offset(22 * driftX, -18 * driftY),
+                        colors: [
+                          tertiary.withValues(alpha: isLight ? 0.18 : 0.14),
+                          primary.withValues(alpha: isLight ? 0.12 : 0.1),
+                          Colors.transparent,
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: RadialGradient(
+                      center: const Alignment(0, -0.52),
+                      radius: 1.08,
+                      colors: [
+                        primary.withValues(alpha: isLight ? 0.12 : 0.08),
+                        Colors.transparent,
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _AtmosphereOrb extends StatelessWidget {
+  const _AtmosphereOrb({
+    required this.alignment,
+    required this.size,
+    required this.offset,
+    required this.colors,
+  });
+
+  final Alignment alignment;
+  final Size size;
+  final Offset offset;
+  final List<Color> colors;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: alignment,
+      child: Transform.translate(
+        offset: offset,
+        child: Container(
+          width: size.width,
+          height: size.height,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: RadialGradient(colors: colors, stops: const [0, 0.52, 1]),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NowPlayingHeroSurface extends StatelessWidget {
+  const _NowPlayingHeroSurface({required this.track, required this.child});
+
+  final Track track;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final palette = track.palette.isEmpty
+        ? <Color>[_DesktopPalette.accent, _DesktopPalette.accentSoft]
+        : track.palette;
+    final primary = palette.first;
+    final secondary = palette.length > 1
+        ? palette[1]
+        : _DesktopPalette.accentSoft;
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(28),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeInOutCubic,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color.alphaBlend(
+                primary.withValues(alpha: isLight ? 0.18 : 0.12),
+                _DesktopPalette.bg2,
+              ).withValues(alpha: isLight ? 0.92 : 0.9),
+              Color.alphaBlend(
+                secondary.withValues(alpha: isLight ? 0.12 : 0.08),
+                _DesktopPalette.bg1,
+              ).withValues(alpha: isLight ? 0.86 : 0.84),
+            ],
+          ),
+          border: Border.all(
+            color: primary.withValues(alpha: isLight ? 0.22 : 0.16),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: primary.withValues(alpha: isLight ? 0.12 : 0.18),
+              blurRadius: 42,
+              offset: const Offset(0, 24),
+            ),
+          ],
+        ),
+        child: Stack(
+          children: [
+            Positioned(
+              left: -90,
+              top: -70,
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: primary.withValues(alpha: isLight ? 0.26 : 0.18),
+                        blurRadius: 120,
+                        spreadRadius: 26,
+                      ),
+                    ],
+                  ),
+                  child: const SizedBox(width: 180, height: 180),
+                ),
+              ),
+            ),
+            Padding(padding: const EdgeInsets.all(28), child: child),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _NowPlayingQueueSurface extends StatelessWidget {
+  const _NowPlayingQueueSurface({required this.track, required this.child});
+
+  final Track track;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
+    final palette = track.palette.isEmpty
+        ? <Color>[_DesktopPalette.accent, _DesktopPalette.accentSoft]
+        : track.palette;
+    final primary = palette.first;
+    final secondary = palette.length > 1
+        ? palette[1]
+        : _DesktopPalette.accentSoft;
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(24),
+      child: BackdropFilter(
+        filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 320),
+          curve: Curves.easeInOutCubic,
+          padding: const EdgeInsets.all(22),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Color.alphaBlend(
+                  primary.withValues(alpha: isLight ? 0.08 : 0.06),
+                  _DesktopPalette.bg2.withValues(alpha: 0.88),
+                ),
+                Color.alphaBlend(
+                  secondary.withValues(alpha: isLight ? 0.06 : 0.04),
+                  _DesktopPalette.bg1.withValues(alpha: 0.8),
+                ),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: primary.withValues(alpha: isLight ? 0.16 : 0.12),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: primary.withValues(alpha: isLight ? 0.06 : 0.12),
+                blurRadius: 28,
+                offset: const Offset(0, 16),
+              ),
+            ],
+          ),
+          child: Stack(
+            children: [
+              Positioned(
+                left: 0,
+                top: 0,
+                right: 0,
+                child: Container(
+                  height: 1,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        Colors.transparent,
+                        primary.withValues(alpha: isLight ? 0.26 : 0.2),
+                        Colors.transparent,
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              child,
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NowPlayingArtworkSpotlight extends StatefulWidget {
+  const _NowPlayingArtworkSpotlight({
+    required this.track,
+    required this.size,
+    required this.isPlaying,
+  });
+
+  final Track track;
+  final double size;
+  final bool isPlaying;
+
+  @override
+  State<_NowPlayingArtworkSpotlight> createState() =>
+      _NowPlayingArtworkSpotlightState();
+}
+
+class _NowPlayingArtworkSpotlightState
+    extends State<_NowPlayingArtworkSpotlight>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 3600),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _syncAnimation(immediate: true);
+  }
+
+  @override
+  void didUpdateWidget(covariant _NowPlayingArtworkSpotlight oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isPlaying != widget.isPlaying ||
+        oldWidget.track.id != widget.track.id) {
+      _syncAnimation();
+    }
+  }
+
+  void _syncAnimation({bool immediate = false}) {
+    if (widget.isPlaying) {
+      if (!_controller.isAnimating) {
+        _controller.repeat();
+      }
+      return;
+    }
+
+    _controller.stop();
+    if (immediate) {
+      _controller.value = 0.18;
+      return;
+    }
+    _controller.animateTo(
+      0.18,
+      duration: const Duration(milliseconds: 420),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
+    final isLight = brightness == Brightness.light;
+    final palette = widget.track.palette.isEmpty
+        ? <Color>[
+            _DesktopPalette.accent,
+            _DesktopPalette.accentSoft,
+            _DesktopPalette.bg3,
+          ]
+        : widget.track.palette;
+    final primary = palette.first;
+    final secondary = palette.length > 1
+        ? palette[1]
+        : _DesktopPalette.accentSoft;
+    final tertiary = palette.length > 2 ? palette[2] : _DesktopPalette.bg3;
+    final radius = BorderRadius.circular(widget.size * 0.1);
+
+    return SizedBox(
+      width: widget.size,
+      height: widget.size,
+      child: AnimatedBuilder(
+        animation: _controller,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            ArtworkCover(
+              title: widget.track.album,
+              palette: palette,
+              artworkUri: widget.track.artworkUri,
+              size: widget.size,
+              borderRadius: radius,
+              showTitle: true,
+              icon: Icons.music_note_rounded,
+            ),
+            Positioned.fill(
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: radius,
+                    border: Border.all(
+                      color: Colors.white.withValues(
+                        alpha: isLight ? 0.24 : 0.14,
+                      ),
+                    ),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Colors.white.withValues(alpha: isLight ? 0.1 : 0.08),
+                        Colors.transparent,
+                        tertiary.withValues(alpha: isLight ? 0.06 : 0.1),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        builder: (context, child) {
+          final phase = widget.isPlaying ? _controller.value : 0.18;
+          final pulse = (math.sin(phase * math.pi * 2) + 1) / 2;
+          final floatY = widget.isPlaying ? math.sin(phase * math.pi) * 6 : 0.0;
+          final glowScale = 0.92 + (pulse * 0.18);
+          final ringScale = 0.9 + (pulse * 0.1);
+
+          return Stack(
+            clipBehavior: Clip.none,
+            alignment: Alignment.center,
+            children: [
+              Positioned.fill(
+                left: -38,
+                top: -38,
+                right: -38,
+                bottom: -38,
+                child: Transform.scale(
+                  scale: glowScale,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: RadialGradient(
+                        colors: [
+                          primary.withValues(alpha: isLight ? 0.22 : 0.16),
+                          secondary.withValues(alpha: isLight ? 0.14 : 0.1),
+                          Colors.transparent,
+                        ],
+                        stops: const [0, 0.45, 1],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned.fill(
+                left: -18,
+                top: -18,
+                right: -18,
+                bottom: -18,
+                child: Transform.scale(
+                  scale: ringScale,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: primary.withValues(alpha: isLight ? 0.2 : 0.14),
+                        width: 1.2,
+                      ),
+                      gradient: RadialGradient(
+                        colors: [
+                          primary.withValues(alpha: isLight ? 0.08 : 0.06),
+                          Colors.transparent,
+                        ],
+                        stops: const [0, 1],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Transform.translate(offset: Offset(0, -floatY), child: child),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _NowPlayingReveal extends StatefulWidget {
+  const _NowPlayingReveal({
+    super.key,
+    required this.child,
+    this.delay = Duration.zero,
+    this.beginOffset = const Offset(0, 0.035),
+  });
+
+  final Widget child;
+  final Duration delay;
+  final Offset beginOffset;
+
+  @override
+  State<_NowPlayingReveal> createState() => _NowPlayingRevealState();
+}
+
+class _NowPlayingRevealState extends State<_NowPlayingReveal>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 520),
+  );
+  Timer? _delayTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.delay == Duration.zero) {
+      _controller.forward();
+      return;
+    }
+    _delayTimer = Timer(widget.delay, () {
+      if (!mounted) {
+        return;
+      }
+      _controller.forward();
+    });
+  }
+
+  @override
+  void dispose() {
+    _delayTimer?.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final animation = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeOutCubic,
+    );
+
+    return FadeTransition(
+      opacity: animation,
+      child: SlideTransition(
+        position: Tween<Offset>(
+          begin: widget.beginOffset,
+          end: Offset.zero,
+        ).animate(animation),
+        child: widget.child,
+      ),
+    );
+  }
+}
+
 class _HeroPanel extends StatelessWidget {
   const _HeroPanel({
     required this.controller,
@@ -1321,11 +1996,23 @@ class _HeroPanel extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  hasTrack ? 'Now Playing' : 'Desktop Player',
-                  style: _DesktopTypography.overline.copyWith(
-                    color: _DesktopPalette.textMuted,
-                  ),
+                Row(
+                  children: [
+                    Text(
+                      hasTrack ? 'Now Playing' : 'Desktop Player',
+                      style: _DesktopTypography.overline.copyWith(
+                        color: _DesktopPalette.textMuted,
+                      ),
+                    ),
+                    if (hasTrack && controller.isPlaying) ...[
+                      const SizedBox(width: 10),
+                      _WaveBars(
+                        height: 12,
+                        color: _DesktopPalette.accent,
+                        minFactor: 0.28,
+                      ),
+                    ],
+                  ],
                 ),
                 const SizedBox(height: 10),
                 Text(title, style: _DesktopTypography.display),
@@ -1502,20 +2189,46 @@ class _NowPlayingMeta extends StatelessWidget {
   }
 }
 
-class _HistoryRow extends StatelessWidget {
+class _HistoryRow extends StatefulWidget {
   const _HistoryRow({required this.track});
 
   final Track track;
 
   @override
+  State<_HistoryRow> createState() => _HistoryRowState();
+}
+
+class _HistoryRowState extends State<_HistoryRow> {
+  var _hovered = false;
+
+  @override
   Widget build(BuildContext context) {
     final controller = ChiMusicScope.watch(context);
+    final track = widget.track;
     final entry = controller.playbackHistoryEntryForTrack(track.id);
+    final active = _hovered || controller.currentTrack?.id == track.id;
 
     return InkWell(
       onTap: () => controller.resumeTrack(track),
+      onHover: (hovered) {
+        if (_hovered == hovered) {
+          return;
+        }
+        setState(() {
+          _hovered = hovered;
+        });
+      },
       borderRadius: BorderRadius.circular(12),
-      child: Padding(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeInOutCubic,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          color: active ? _DesktopPalette.bg2 : Colors.transparent,
+          border: Border.all(
+            color: active ? _DesktopPalette.borderStrong : Colors.transparent,
+          ),
+        ),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         child: Row(
           children: [
@@ -1582,13 +2295,14 @@ class _HistoryRow extends StatelessWidget {
   }
 }
 
-class _DesktopTrackRow extends StatelessWidget {
+class _DesktopTrackRow extends StatefulWidget {
   const _DesktopTrackRow({
     required this.track,
     required this.indexLabel,
     required this.showAlbum,
     required this.trailing,
     required this.onTap,
+    this.revealTrailingOnHover = false,
   });
 
   final Track track;
@@ -1596,34 +2310,84 @@ class _DesktopTrackRow extends StatelessWidget {
   final bool showAlbum;
   final Widget trailing;
   final VoidCallback onTap;
+  final bool revealTrailingOnHover;
+
+  @override
+  State<_DesktopTrackRow> createState() => _DesktopTrackRowState();
+}
+
+class _DesktopTrackRowState extends State<_DesktopTrackRow> {
+  var _hovered = false;
 
   @override
   Widget build(BuildContext context) {
     final controller = ChiMusicScope.watch(context);
+    final track = widget.track;
     final playing = controller.currentTrack?.id == track.id;
+    final active = playing || _hovered;
 
     return InkWell(
-      onTap: onTap,
+      onTap: widget.onTap,
+      onHover: (hovered) {
+        if (_hovered == hovered) {
+          return;
+        }
+        setState(() {
+          _hovered = hovered;
+        });
+      },
       borderRadius: BorderRadius.circular(12),
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeInOutCubic,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(12),
           color: playing
               ? _DesktopPalette.accent.withValues(alpha: 0.08)
-              : Colors.transparent,
+              : (active ? _DesktopPalette.bg2 : Colors.transparent),
+          border: Border.all(
+            color: active ? _DesktopPalette.borderStrong : Colors.transparent,
+          ),
         ),
         child: Row(
           children: [
             SizedBox(
               width: 32,
               child: Center(
-                child: Icon(
-                  playing ? Icons.graphic_eq_rounded : Icons.play_arrow_rounded,
-                  color: playing
-                      ? _DesktopPalette.accent
-                      : _DesktopPalette.textFaint,
-                  size: 16,
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 180),
+                  switchInCurve: Curves.easeOutCubic,
+                  switchOutCurve: Curves.easeInCubic,
+                  transitionBuilder: (child, animation) {
+                    return FadeTransition(
+                      opacity: animation,
+                      child: ScaleTransition(scale: animation, child: child),
+                    );
+                  },
+                  child: playing && controller.isPlaying
+                      ? _WaveBars(
+                          key: const ValueKey('bars'),
+                          height: 14,
+                          color: _DesktopPalette.accent,
+                          minFactor: 0.28,
+                        )
+                      : active
+                      ? Icon(
+                          Icons.play_arrow_rounded,
+                          key: const ValueKey('play'),
+                          color: playing
+                              ? _DesktopPalette.accent
+                              : _DesktopPalette.textMuted,
+                          size: 16,
+                        )
+                      : Text(
+                          widget.indexLabel,
+                          key: const ValueKey('index'),
+                          style: _DesktopTypography.mono.copyWith(
+                            color: _DesktopPalette.textFaint,
+                          ),
+                        ),
                 ),
               ),
             ),
@@ -1653,7 +2417,9 @@ class _DesktopTrackRow extends StatelessWidget {
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    showAlbum ? track.artist : '$indexLabel. ${track.artist}',
+                    widget.showAlbum
+                        ? track.artist
+                        : '${widget.indexLabel}. ${track.artist}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: _DesktopTypography.small.copyWith(
@@ -1663,7 +2429,7 @@ class _DesktopTrackRow extends StatelessWidget {
                 ],
               ),
             ),
-            if (showAlbum)
+            if (widget.showAlbum)
               SizedBox(
                 width: 160,
                 child: Text(
@@ -1676,7 +2442,7 @@ class _DesktopTrackRow extends StatelessWidget {
                   ),
                 ),
               ),
-            if (showAlbum)
+            if (widget.showAlbum)
               SizedBox(
                 width: 80,
                 child: Text(
@@ -1687,8 +2453,18 @@ class _DesktopTrackRow extends StatelessWidget {
                   ),
                 ),
               ),
-            if (!showAlbum) const SizedBox(width: 12),
-            SizedBox(width: 36, child: trailing),
+            if (!widget.showAlbum) const SizedBox(width: 12),
+            SizedBox(
+              width: 36,
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 160),
+                opacity: !widget.revealTrailingOnHover || active ? 1 : 0,
+                child: IgnorePointer(
+                  ignoring: widget.revealTrailingOnHover && !active,
+                  child: widget.trailing,
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -1696,82 +2472,219 @@ class _DesktopTrackRow extends StatelessWidget {
   }
 }
 
-class _RecentTrackCard extends StatelessWidget {
+class _RecentTrackCard extends StatefulWidget {
   const _RecentTrackCard({required this.track});
 
   final Track track;
 
   @override
+  State<_RecentTrackCard> createState() => _RecentTrackCardState();
+}
+
+class _RecentTrackCardState extends State<_RecentTrackCard> {
+  var _hovered = false;
+
+  @override
   Widget build(BuildContext context) {
     final controller = ChiMusicScope.watch(context);
+    final track = widget.track;
+    final active = _hovered || controller.currentTrack?.id == track.id;
 
-    return _SurfaceCard(
-      padding: const EdgeInsets.all(14),
-      onTap: () => controller.playTrack(track),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final size = constraints.maxWidth < constraints.maxHeight
-                    ? constraints.maxWidth
-                    : constraints.maxHeight;
+    return MouseRegion(
+      onEnter: (_) {
+        if (_hovered) {
+          return;
+        }
+        setState(() {
+          _hovered = true;
+        });
+      },
+      onExit: (_) {
+        if (!_hovered) {
+          return;
+        }
+        setState(() {
+          _hovered = false;
+        });
+      },
+      child: AnimatedScale(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+        scale: active ? 1.015 : 1,
+        child: InkWell(
+          onTap: () => controller.playTrack(track),
+          borderRadius: BorderRadius.circular(18),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeInOutCubic,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: active ? _DesktopPalette.bg3 : _DesktopPalette.bg2,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: _DesktopPalette.borderStrong),
+              boxShadow: active
+                  ? [
+                      BoxShadow(
+                        color: track.palette.first.withValues(alpha: 0.18),
+                        blurRadius: 24,
+                        offset: const Offset(0, 12),
+                      ),
+                    ]
+                  : const [],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final size = constraints.maxWidth < constraints.maxHeight
+                          ? constraints.maxWidth
+                          : constraints.maxHeight;
 
-                return Stack(
-                  children: [
-                    Center(
-                      child: ArtworkCover(
-                        title: track.album,
-                        palette: track.palette,
-                        artworkUri: track.artworkUri,
-                        size: size,
-                        borderRadius: BorderRadius.circular(12),
-                        icon: Icons.music_note_rounded,
-                      ),
+                      return Stack(
+                        children: [
+                          Center(
+                            child: ArtworkCover(
+                              title: track.album,
+                              palette: track.palette,
+                              artworkUri: track.artworkUri,
+                              size: size,
+                              borderRadius: BorderRadius.circular(12),
+                              icon: Icons.music_note_rounded,
+                            ),
+                          ),
+                          Positioned(
+                            right: 10,
+                            bottom: 10,
+                            child: AnimatedOpacity(
+                              duration: const Duration(milliseconds: 180),
+                              opacity: active ? 1 : 0,
+                              child: AnimatedScale(
+                                duration: const Duration(milliseconds: 180),
+                                scale: active ? 1 : 0.86,
+                                child: Container(
+                                  width: 34,
+                                  height: 34,
+                                  decoration: BoxDecoration(
+                                    color: _DesktopPalette.accent,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Center(
+                                    child:
+                                        controller.currentTrack?.id ==
+                                                track.id &&
+                                            controller.isPlaying
+                                        ? _WaveBars(
+                                            height: 12,
+                                            color: _DesktopPalette.bg0,
+                                            minFactor: 0.28,
+                                          )
+                                        : Icon(
+                                            Icons.play_arrow_rounded,
+                                            size: 18,
+                                            color: _DesktopPalette.bg0,
+                                          ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  track.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: _DesktopTypography.body.copyWith(
+                    color: _DesktopPalette.textPrimary,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  track.artist,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: _DesktopTypography.small.copyWith(
+                    color: _DesktopPalette.textMuted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _WaveBars extends StatefulWidget {
+  const _WaveBars({
+    super.key,
+    required this.height,
+    required this.color,
+    this.minFactor = 0.24,
+  });
+
+  final double height;
+  final Color color;
+  final double minFactor;
+
+  @override
+  State<_WaveBars> createState() => _WaveBarsState();
+}
+
+class _WaveBarsState extends State<_WaveBars>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 920),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: widget.height,
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, child) {
+          return Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: List<Widget>.generate(5, (index) {
+              final phase = (_controller.value * 2 * math.pi) + (index * 0.72);
+              final normalized = (math.sin(phase) + 1) / 2;
+              final factor =
+                  widget.minFactor + ((1 - widget.minFactor) * normalized);
+
+              return Padding(
+                padding: EdgeInsets.only(right: index == 4 ? 0 : 2),
+                child: Align(
+                  alignment: Alignment.bottomCenter,
+                  child: Container(
+                    width: 2,
+                    height: widget.height * factor,
+                    decoration: BoxDecoration(
+                      color: widget.color,
+                      borderRadius: BorderRadius.circular(999),
                     ),
-                    Positioned(
-                      right: 10,
-                      bottom: 10,
-                      child: Container(
-                        width: 34,
-                        height: 34,
-                        decoration: BoxDecoration(
-                          color: _DesktopPalette.accent,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.play_arrow_rounded,
-                          size: 18,
-                          color: _DesktopPalette.bg0,
-                        ),
-                      ),
-                    ),
-                  ],
-                );
-              },
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            track.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: _DesktopTypography.body.copyWith(
-              color: _DesktopPalette.textPrimary,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            track.artist,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: _DesktopTypography.small.copyWith(
-              color: _DesktopPalette.textMuted,
-            ),
-          ),
-        ],
+                  ),
+                ),
+              );
+            }),
+          );
+        },
       ),
     );
   }
@@ -2216,14 +3129,10 @@ class _SurfaceCard extends StatelessWidget {
   const _SurfaceCard({
     required this.child,
     this.padding = const EdgeInsets.all(18),
-    this.onTap,
-    this.background,
   });
 
   final Widget child;
   final EdgeInsetsGeometry padding;
-  final VoidCallback? onTap;
-  final Color? background;
 
   @override
   Widget build(BuildContext context) {
@@ -2232,22 +3141,14 @@ class _SurfaceCard extends StatelessWidget {
       curve: Curves.easeInOutCubic,
       padding: padding,
       decoration: BoxDecoration(
-        color: background ?? _DesktopPalette.bg2,
+        color: _DesktopPalette.bg2,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: _DesktopPalette.borderStrong),
       ),
       child: child,
     );
 
-    if (onTap == null) {
-      return body;
-    }
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(18),
-      child: body,
-    );
+    return body;
   }
 }
 
@@ -2338,21 +3239,46 @@ class _EmptyStateCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _SurfaceCard(
-      padding: const EdgeInsets.all(28),
+      padding: const EdgeInsets.all(32),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: 60,
-            height: 60,
-            decoration: BoxDecoration(
-              color: _DesktopPalette.bg3,
-              shape: BoxShape.circle,
-              border: Border.all(color: _DesktopPalette.borderStrong),
+          SizedBox(
+            width: 92,
+            height: 92,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Container(
+                  width: 92,
+                  height: 92,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: [
+                        _DesktopPalette.accent.withValues(alpha: 0.18),
+                        _DesktopPalette.accent.withValues(alpha: 0.03),
+                        Colors.transparent,
+                      ],
+                    ),
+                  ),
+                ),
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    color: _DesktopPalette.bg3,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: _DesktopPalette.borderStrong),
+                  ),
+                  child: Icon(icon, color: _DesktopPalette.accent, size: 28),
+                ),
+              ],
             ),
-            child: Icon(icon, color: _DesktopPalette.accent, size: 28),
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 16),
+          const _DecorativeBars(),
+          const SizedBox(height: 16),
           Text(title, style: _DesktopTypography.section),
           const SizedBox(height: 10),
           Text(
@@ -2374,6 +3300,34 @@ class _EmptyStateCard extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+class _DecorativeBars extends StatelessWidget {
+  const _DecorativeBars();
+
+  @override
+  Widget build(BuildContext context) {
+    const heights = <double>[7, 12, 18, 12, 7];
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        for (var index = 0; index < heights.length; index++)
+          Container(
+            width: 3,
+            height: heights[index],
+            margin: EdgeInsets.only(right: index == heights.length - 1 ? 0 : 4),
+            decoration: BoxDecoration(
+              color: _DesktopPalette.accent.withValues(
+                alpha: 0.4 + (index * 0.08),
+              ),
+              borderRadius: BorderRadius.circular(999),
+            ),
+          ),
+      ],
     );
   }
 }
