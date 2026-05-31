@@ -1,7 +1,9 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/widgets.dart';
 import 'package:path/path.dart' as path;
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 
@@ -10,6 +12,8 @@ import 'music_session_store.dart';
 
 const String _databaseFileName = 'chimusic_v1.db';
 const String _legacyMigrationStateKey = 'chimusic.sqlite.migrated.v1';
+const String _localSnapshotDirectoryName = 'chimusic';
+const String _localSnapshotFileName = 'music_records_v1.json';
 const int _databaseVersion = 2;
 
 class MusicRepositorySnapshot {
@@ -64,6 +68,53 @@ abstract class MusicRepository {
   Future<void> save(MusicRepositorySnapshot snapshot);
 
   Future<void> close();
+}
+
+class MusicSnapshotFileStore {
+  MusicSnapshotFileStore({
+    Future<Directory> Function()? directoryProvider,
+    this.directoryName = _localSnapshotDirectoryName,
+    this.fileName = _localSnapshotFileName,
+  }) : _directoryProvider = directoryProvider ?? getApplicationSupportDirectory;
+
+  final Future<Directory> Function() _directoryProvider;
+  final String directoryName;
+  final String fileName;
+
+  Future<File> resolveFile() async {
+    final directory = await _directoryProvider();
+    return File(path.join(directory.path, directoryName, fileName));
+  }
+
+  Future<MusicRepositorySnapshot?> load() async {
+    try {
+      final file = await resolveFile();
+      if (!await file.exists()) {
+        return null;
+      }
+
+      final raw = await file.readAsString();
+      if (raw.isEmpty) {
+        return null;
+      }
+
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) {
+        return null;
+      }
+
+      return _repositorySnapshotFromJson(decoded);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> save(MusicRepositorySnapshot snapshot) async {
+    final file = await resolveFile();
+    await file.parent.create(recursive: true);
+    final payload = jsonEncode(_repositorySnapshotToJson(snapshot));
+    await file.writeAsString(payload, flush: true);
+  }
 }
 
 class LegacySessionStoreRepository implements MusicRepository {
@@ -144,11 +195,15 @@ class LegacySessionStoreRepository implements MusicRepository {
 }
 
 class SqliteMusicRepository implements MusicRepository {
-  SqliteMusicRepository({MusicSessionStore? legacySessionStore})
-    : _legacySessionStore =
-          legacySessionStore ?? SharedPreferencesMusicSessionStore();
+  SqliteMusicRepository({
+    MusicSessionStore? legacySessionStore,
+    MusicSnapshotFileStore? snapshotFileStore,
+  }) : _legacySessionStore =
+           legacySessionStore ?? SharedPreferencesMusicSessionStore(),
+       _snapshotFileStore = snapshotFileStore ?? MusicSnapshotFileStore();
 
   final MusicSessionStore _legacySessionStore;
+  final MusicSnapshotFileStore _snapshotFileStore;
   Database? _database;
 
   @override
@@ -156,6 +211,54 @@ class SqliteMusicRepository implements MusicRepository {
     final db = await _openDatabase();
     await _migrateLegacySnapshotIfNeeded(db);
 
+    final fileSnapshot = await _snapshotFileStore.load();
+    final databaseSnapshot = await _loadSnapshotFromDatabase(db);
+
+    final resolvedSnapshot =
+        _preferFileSnapshot(
+          fileSnapshot: fileSnapshot,
+          databaseSnapshot: databaseSnapshot,
+        )
+        ? (fileSnapshot ?? const MusicRepositorySnapshot())
+        : databaseSnapshot;
+
+    if (_isRepositorySnapshotEmpty(resolvedSnapshot)) {
+      return resolvedSnapshot;
+    }
+
+    if (_preferFileSnapshot(
+      fileSnapshot: fileSnapshot,
+      databaseSnapshot: databaseSnapshot,
+    )) {
+      if (_isRepositorySnapshotEmpty(databaseSnapshot) ||
+          _snapshotVersionStamp(fileSnapshot) >
+              _snapshotVersionStamp(databaseSnapshot)) {
+        await _writeSnapshotToDatabase(db, resolvedSnapshot);
+      }
+    } else if (fileSnapshot == null ||
+        _snapshotVersionStamp(databaseSnapshot) >
+            _snapshotVersionStamp(fileSnapshot)) {
+      await _snapshotFileStore.save(resolvedSnapshot);
+    }
+
+    return resolvedSnapshot;
+  }
+
+  @override
+  Future<void> save(MusicRepositorySnapshot snapshot) async {
+    final db = await _openDatabase();
+    await _writeSnapshotToDatabase(db, snapshot);
+    await _snapshotFileStore.save(snapshot);
+  }
+
+  @override
+  Future<void> close() async {
+    final db = _database;
+    _database = null;
+    await db?.close();
+  }
+
+  Future<MusicRepositorySnapshot> _loadSnapshotFromDatabase(Database db) async {
     final trackMaps = await db.query('tracks');
     final sourceMaps = await db.query('track_sources');
     final statMaps = await db.query('track_stats');
@@ -218,9 +321,10 @@ class SqliteMusicRepository implements MusicRepository {
     );
   }
 
-  @override
-  Future<void> save(MusicRepositorySnapshot snapshot) async {
-    final db = await _openDatabase();
+  Future<void> _writeSnapshotToDatabase(
+    Database db,
+    MusicRepositorySnapshot snapshot,
+  ) async {
     await db.transaction((transaction) async {
       await transaction.delete('tracks');
       await transaction.delete('track_sources');
@@ -252,13 +356,6 @@ class SqliteMusicRepository implements MusicRepository {
       );
       await batch.commit(noResult: true);
     });
-  }
-
-  @override
-  Future<void> close() async {
-    final db = _database;
-    _database = null;
-    await db?.close();
   }
 
   Future<Database> _openDatabase() async {
@@ -463,6 +560,62 @@ class SqliteMusicRepository implements MusicRepository {
   }
 }
 
+bool _preferFileSnapshot({
+  required MusicRepositorySnapshot? fileSnapshot,
+  required MusicRepositorySnapshot databaseSnapshot,
+}) {
+  if (fileSnapshot == null) {
+    return false;
+  }
+  if (_isRepositorySnapshotEmpty(databaseSnapshot)) {
+    return true;
+  }
+  return _snapshotVersionStamp(fileSnapshot) >=
+      _snapshotVersionStamp(databaseSnapshot);
+}
+
+bool _isRepositorySnapshotEmpty(MusicRepositorySnapshot snapshot) {
+  return snapshot.tracks.isEmpty &&
+      snapshot.trackSources.isEmpty &&
+      snapshot.playbackStats.isEmpty &&
+      snapshot.playbackEvents.isEmpty &&
+      snapshot.likedTrackIds.isEmpty &&
+      snapshot.savedCollectionIds.isEmpty &&
+      snapshot.recentTrackIds.isEmpty &&
+      snapshot.recentSearches.isEmpty &&
+      snapshot.playbackSession.queueTrackIds.isEmpty &&
+      snapshot.playbackSession.currentTrackId == null &&
+      snapshot.playbackSession.position == Duration.zero &&
+      snapshot.searchQuery.isEmpty &&
+      snapshot.userProfile == null;
+}
+
+int _snapshotVersionStamp(MusicRepositorySnapshot? snapshot) {
+  if (snapshot == null) {
+    return -1;
+  }
+
+  final candidates = <int>[
+    if (snapshot.playbackSession.updatedAt case final updatedAt?)
+      updatedAt.millisecondsSinceEpoch,
+    for (final track in snapshot.tracks)
+      track.importedAt.millisecondsSinceEpoch,
+    for (final stat in snapshot.playbackStats)
+      stat.lastPlayedAt.millisecondsSinceEpoch,
+    for (final event in snapshot.playbackEvents)
+      event.endedAt?.millisecondsSinceEpoch ??
+          event.startedAt.millisecondsSinceEpoch,
+    if (snapshot.userProfile case final userProfile?)
+      userProfile.signedInAt.millisecondsSinceEpoch,
+  ];
+
+  if (candidates.isEmpty) {
+    return 0;
+  }
+
+  return candidates.reduce((current, next) => current > next ? current : next);
+}
+
 class InMemoryMusicRepository implements MusicRepository {
   InMemoryMusicRepository([this.snapshot = const MusicRepositorySnapshot()]);
 
@@ -478,6 +631,340 @@ class InMemoryMusicRepository implements MusicRepository {
 
   @override
   Future<void> close() async {}
+}
+
+Map<String, Object?> _repositorySnapshotToJson(
+  MusicRepositorySnapshot snapshot,
+) {
+  return <String, Object?>{
+    'tracks': snapshot.tracks.map(_trackToSnapshotJson).toList(growable: false),
+    'trackSources': snapshot.trackSources
+        .map(_trackSourceToSnapshotJson)
+        .toList(growable: false),
+    'playbackStats': snapshot.playbackStats
+        .map(_playbackStatToSnapshotJson)
+        .toList(growable: false),
+    'playbackEvents': snapshot.playbackEvents
+        .map(_playbackEventToSnapshotJson)
+        .toList(growable: false),
+    'playbackSession': _playbackSessionToSnapshotJson(snapshot.playbackSession),
+    'likedTrackIds': snapshot.likedTrackIds.toList(growable: false),
+    'savedCollectionIds': snapshot.savedCollectionIds.toList(growable: false),
+    'recentTrackIds': snapshot.recentTrackIds,
+    'recentSearches': snapshot.recentSearches,
+    'selectedTab': snapshot.selectedTab.name,
+    'libraryFilter': snapshot.libraryFilter.name,
+    'librarySort': snapshot.librarySort.name,
+    'searchQuery': snapshot.searchQuery,
+    'searchMode': snapshot.searchMode.name,
+    'userProfile': snapshot.userProfile == null
+        ? null
+        : _userProfileToSnapshotJson(snapshot.userProfile!),
+    'aiSearchTrialsRemaining': snapshot.aiSearchTrialsRemaining,
+    'hasUnlockedAiUpsell': snapshot.hasUnlockedAiUpsell,
+    'themeMode': snapshot.themeMode.name,
+    'isShuffleEnabled': snapshot.isShuffleEnabled,
+    'isRepeatEnabled': snapshot.isRepeatEnabled,
+  };
+}
+
+MusicRepositorySnapshot _repositorySnapshotFromJson(Map<String, dynamic> json) {
+  final rawUserProfile = json['userProfile'];
+  final rawPlaybackSession = json['playbackSession'];
+
+  return MusicRepositorySnapshot(
+    tracks: (json['tracks'] as List<dynamic>? ?? const <dynamic>[])
+        .whereType<Map<String, dynamic>>()
+        .map(_trackFromSnapshotJson)
+        .toList(growable: false),
+    trackSources: (json['trackSources'] as List<dynamic>? ?? const <dynamic>[])
+        .whereType<Map<String, dynamic>>()
+        .map(_trackSourceFromSnapshotJson)
+        .toList(growable: false),
+    playbackStats:
+        (json['playbackStats'] as List<dynamic>? ?? const <dynamic>[])
+            .whereType<Map<String, dynamic>>()
+            .map(_playbackStatFromSnapshotJson)
+            .toList(growable: false),
+    playbackEvents:
+        (json['playbackEvents'] as List<dynamic>? ?? const <dynamic>[])
+            .whereType<Map<String, dynamic>>()
+            .map(_playbackEventFromSnapshotJson)
+            .toList(growable: false),
+    playbackSession: rawPlaybackSession is Map<String, dynamic>
+        ? _playbackSessionFromSnapshotJson(rawPlaybackSession)
+        : const PlaybackSessionState(),
+    likedTrackIds: _jsonStringSet(json['likedTrackIds']),
+    savedCollectionIds: _jsonStringSet(json['savedCollectionIds']),
+    recentTrackIds: _jsonStringList(json['recentTrackIds']),
+    recentSearches: _jsonStringList(json['recentSearches']),
+    selectedTab: _enumByName(
+      MusicTab.values,
+      json['selectedTab'] as String?,
+      MusicTab.home,
+    ),
+    libraryFilter: _enumByName(
+      LibraryFilter.values,
+      json['libraryFilter'] as String?,
+      LibraryFilter.all,
+    ),
+    librarySort: _enumByName(
+      LibrarySort.values,
+      json['librarySort'] as String?,
+      LibrarySort.recent,
+    ),
+    searchQuery: (json['searchQuery'] as String?) ?? '',
+    searchMode: _enumByName(
+      SearchMode.values,
+      json['searchMode'] as String?,
+      SearchMode.standard,
+    ),
+    userProfile: rawUserProfile is Map<String, dynamic>
+        ? _userProfileFromSnapshotJson(rawUserProfile)
+        : null,
+    aiSearchTrialsRemaining: (json['aiSearchTrialsRemaining'] as int?) ?? 2,
+    hasUnlockedAiUpsell: (json['hasUnlockedAiUpsell'] as bool?) ?? false,
+    themeMode: _enumByName(
+      AppThemeMode.values,
+      json['themeMode'] as String?,
+      AppThemeMode.dark,
+    ),
+    isShuffleEnabled: (json['isShuffleEnabled'] as bool?) ?? false,
+    isRepeatEnabled: (json['isRepeatEnabled'] as bool?) ?? false,
+  );
+}
+
+Map<String, Object?> _trackToSnapshotJson(Track track) {
+  return <String, Object?>{
+    'id': track.id,
+    'filePath': track.filePath,
+    'fileName': track.fileName,
+    'folderPath': track.folderPath,
+    'title': track.title,
+    'artist': track.artist,
+    'album': track.album,
+    'palette': track.palette
+        .map((color) => color.toARGB32())
+        .toList(growable: false),
+    'importedAt': track.importedAt.millisecondsSinceEpoch,
+    'durationMs': track.duration?.inMilliseconds,
+    'fileExtension': track.fileExtension,
+    'artworkUri': track.artworkUri,
+    'lyricsAvailability': track.lyricsAvailability.name,
+    'albumArtist': track.albumArtist,
+    'genre': track.genre,
+    'year': track.year,
+    'bitrate': track.bitrate,
+    'trackNumber': track.trackNumber,
+    'discNumber': track.discNumber,
+    'fingerprint': track.fingerprint,
+    'waveformUri': track.waveformUri,
+    'availability': track.availability.name,
+    'lastValidatedAt': track.lastValidatedAt?.millisecondsSinceEpoch,
+    'cloudMatchStatus': track.cloudMatchStatus.name,
+    'lastSyncedAt': track.lastSyncedAt?.millisecondsSinceEpoch,
+    'credits': track.credits,
+  };
+}
+
+Track _trackFromSnapshotJson(Map<String, dynamic> json) {
+  final paletteValues = (json['palette'] as List<dynamic>? ?? const <dynamic>[])
+      .whereType<int>()
+      .toList(growable: false);
+
+  return Track(
+    id: (json['id'] as String?) ?? '',
+    filePath: (json['filePath'] as String?) ?? '',
+    fileName: (json['fileName'] as String?) ?? '',
+    folderPath: (json['folderPath'] as String?) ?? '',
+    title: (json['title'] as String?) ?? 'Untitled',
+    artist: (json['artist'] as String?) ?? 'Local Music',
+    album: (json['album'] as String?) ?? 'Imported Audio',
+    palette: paletteValues.isEmpty
+        ? const <Color>[Color(0xFF1ED760), Color(0xFF0F5132), Color(0xFF111318)]
+        : paletteValues.map((value) => Color(value)).toList(growable: false),
+    importedAt: DateTime.fromMillisecondsSinceEpoch(
+      (json['importedAt'] as int?) ?? 0,
+    ),
+    duration: switch (json['durationMs']) {
+      final int value => Duration(milliseconds: value),
+      _ => null,
+    },
+    fileExtension: json['fileExtension'] as String?,
+    artworkUri: json['artworkUri'] as String?,
+    lyricsAvailability: _enumByName(
+      LyricsAvailability.values,
+      json['lyricsAvailability'] as String?,
+      LyricsAvailability.unavailable,
+    ),
+    albumArtist: json['albumArtist'] as String?,
+    genre: json['genre'] as String?,
+    year: json['year'] as int?,
+    bitrate: json['bitrate'] as int?,
+    trackNumber: json['trackNumber'] as int?,
+    discNumber: json['discNumber'] as int?,
+    fingerprint: json['fingerprint'] as String?,
+    waveformUri: json['waveformUri'] as String?,
+    availability: _enumByName(
+      TrackAvailability.values,
+      json['availability'] as String?,
+      TrackAvailability.available,
+    ),
+    lastValidatedAt: switch (json['lastValidatedAt']) {
+      final int value => DateTime.fromMillisecondsSinceEpoch(value),
+      _ => null,
+    },
+    cloudMatchStatus: _enumByName(
+      CloudMatchStatus.values,
+      json['cloudMatchStatus'] as String?,
+      CloudMatchStatus.localOnly,
+    ),
+    lastSyncedAt: switch (json['lastSyncedAt']) {
+      final int value => DateTime.fromMillisecondsSinceEpoch(value),
+      _ => null,
+    },
+    credits: _jsonStringList(json['credits']),
+  );
+}
+
+Map<String, Object?> _trackSourceToSnapshotJson(TrackSourceRecord source) {
+  return <String, Object?>{
+    'trackId': source.trackId,
+    'platform': source.platform,
+    'locator': source.locator,
+    'bookmarkBase64': source.bookmarkBase64,
+    'relativePath': source.relativePath,
+  };
+}
+
+TrackSourceRecord _trackSourceFromSnapshotJson(Map<String, dynamic> json) {
+  return TrackSourceRecord(
+    trackId: (json['trackId'] as String?) ?? '',
+    platform: (json['platform'] as String?) ?? 'unknown',
+    locator: (json['locator'] as String?) ?? '',
+    bookmarkBase64: json['bookmarkBase64'] as String?,
+    relativePath: json['relativePath'] as String?,
+  );
+}
+
+Map<String, Object?> _playbackStatToSnapshotJson(PlaybackHistoryEntry stat) {
+  return <String, Object?>{
+    'trackId': stat.trackId,
+    'lastPlayedAt': stat.lastPlayedAt.millisecondsSinceEpoch,
+    'lastPositionMs': stat.lastPosition.inMilliseconds,
+    'playCount': stat.playCount,
+    'totalListenedMs': stat.totalListened.inMilliseconds,
+  };
+}
+
+PlaybackHistoryEntry _playbackStatFromSnapshotJson(Map<String, dynamic> json) {
+  return PlaybackHistoryEntry(
+    trackId: (json['trackId'] as String?) ?? '',
+    lastPlayedAt: DateTime.fromMillisecondsSinceEpoch(
+      (json['lastPlayedAt'] as int?) ?? 0,
+    ),
+    lastPosition: Duration(milliseconds: (json['lastPositionMs'] as int?) ?? 0),
+    playCount: (json['playCount'] as int?) ?? 0,
+    totalListened: Duration(
+      milliseconds: (json['totalListenedMs'] as int?) ?? 0,
+    ),
+  );
+}
+
+Map<String, Object?> _playbackEventToSnapshotJson(PlaybackEvent event) {
+  return <String, Object?>{
+    'id': event.id,
+    'trackId': event.trackId,
+    'collectionId': event.collectionId,
+    'startedAt': event.startedAt.millisecondsSinceEpoch,
+    'endedAt': event.endedAt?.millisecondsSinceEpoch,
+    'maxPositionMs': event.maxPosition.inMilliseconds,
+    'endReason': event.endReason?.name,
+  };
+}
+
+PlaybackEvent _playbackEventFromSnapshotJson(Map<String, dynamic> json) {
+  final endReasonName = json['endReason'] as String?;
+  return PlaybackEvent(
+    id: (json['id'] as String?) ?? '',
+    trackId: (json['trackId'] as String?) ?? '',
+    collectionId: json['collectionId'] as String?,
+    startedAt: DateTime.fromMillisecondsSinceEpoch(
+      (json['startedAt'] as int?) ?? 0,
+    ),
+    endedAt: switch (json['endedAt']) {
+      final int value => DateTime.fromMillisecondsSinceEpoch(value),
+      _ => null,
+    },
+    maxPosition: Duration(milliseconds: (json['maxPositionMs'] as int?) ?? 0),
+    endReason: endReasonName == null
+        ? null
+        : _enumByName(
+            PlaybackEndReason.values,
+            endReasonName,
+            PlaybackEndReason.stopped,
+          ),
+  );
+}
+
+Map<String, Object?> _playbackSessionToSnapshotJson(
+  PlaybackSessionState state,
+) {
+  return <String, Object?>{
+    'queueTrackIds': state.queueTrackIds,
+    'currentTrackId': state.currentTrackId,
+    'currentCollectionId': state.currentCollectionId,
+    'positionMs': state.position.inMilliseconds,
+    'updatedAt': state.updatedAt?.millisecondsSinceEpoch,
+  };
+}
+
+PlaybackSessionState _playbackSessionFromSnapshotJson(
+  Map<String, dynamic> json,
+) {
+  return PlaybackSessionState(
+    queueTrackIds: _jsonStringList(json['queueTrackIds']),
+    currentTrackId: json['currentTrackId'] as String?,
+    currentCollectionId: json['currentCollectionId'] as String?,
+    position: Duration(milliseconds: (json['positionMs'] as int?) ?? 0),
+    updatedAt: switch (json['updatedAt']) {
+      final int value => DateTime.fromMillisecondsSinceEpoch(value),
+      _ => null,
+    },
+  );
+}
+
+Map<String, Object?> _userProfileToSnapshotJson(UserProfile profile) {
+  return <String, Object?>{
+    'id': profile.id,
+    'name': profile.name,
+    'email': profile.email,
+    'avatarSeed': profile.avatarSeed,
+    'membershipTier': profile.membershipTier.name,
+    'signedInAt': profile.signedInAt.millisecondsSinceEpoch,
+    'trialEndsAt': profile.trialEndsAt?.millisecondsSinceEpoch,
+  };
+}
+
+UserProfile _userProfileFromSnapshotJson(Map<String, dynamic> json) {
+  return UserProfile(
+    id: (json['id'] as String?) ?? '',
+    name: (json['name'] as String?) ?? 'Chi Listener',
+    email: (json['email'] as String?) ?? '',
+    avatarSeed: (json['avatarSeed'] as String?) ?? 'Chi Listener',
+    membershipTier: _enumByName(
+      MembershipTier.values,
+      json['membershipTier'] as String?,
+      MembershipTier.free,
+    ),
+    signedInAt: DateTime.fromMillisecondsSinceEpoch(
+      (json['signedInAt'] as int?) ?? 0,
+    ),
+    trialEndsAt: switch (json['trialEndsAt']) {
+      final int value => DateTime.fromMillisecondsSinceEpoch(value),
+      _ => null,
+    },
+  );
 }
 
 Map<String, Object?> _trackToRow(Track track) {
@@ -772,6 +1259,17 @@ List<int> _decodeIntList(Object? rawValue) {
   return (decoded as List<dynamic>? ?? const <dynamic>[])
       .whereType<int>()
       .toList(growable: false);
+}
+
+List<String> _jsonStringList(Object? value) {
+  return (value as List<dynamic>? ?? const <dynamic>[])
+      .whereType<String>()
+      .where((item) => item.isNotEmpty)
+      .toList(growable: false);
+}
+
+Set<String> _jsonStringSet(Object? value) {
+  return _jsonStringList(value).toSet();
 }
 
 T _enumByName<T extends Enum>(List<T> values, String? name, T fallback) {
