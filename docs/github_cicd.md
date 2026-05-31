@@ -12,7 +12,7 @@ File: `.github/workflows/ci.yml`
 - builds Android release `apk` and `aab`
 - builds unsigned iOS release `Runner.app`
 - builds macOS release `chimusic.app`
-- packages Apple outputs into distributable archives and uploads all artifacts
+- uploads iOS and macOS artifacts separately so the macOS package can be downloaded independently
 
 ### CD workflow
 
@@ -22,6 +22,7 @@ File: `.github/workflows/release.yml`
 - builds Android release `apk` and `aab`
 - builds unsigned iOS `Runner.app` archive
 - builds macOS `.app` archive and `.dmg`
+- uploads iOS and macOS release assets as separate artifacts before publishing
 - creates or updates the matching GitHub Release
 - uploads packaged assets to that release
 
@@ -49,7 +50,7 @@ base64 < upload-keystore.jks | tr -d '\n'
 
 ## Apple Packaging
 
-The workflows intentionally build Apple artifacts without signing:
+The workflows intentionally build Apple artifacts without signing and package them independently:
 
 - iOS: zipped `Runner.app`
 - macOS: zipped `.app` and `.dmg`

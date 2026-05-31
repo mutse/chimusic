@@ -86,8 +86,8 @@ jobs:
           path: dist/android/*
           retention-days: 7
 
-  apple:
-    name: Package iOS And macOS Release
+  ios:
+    name: Package iOS Release
     runs-on: macos-latest
     timeout-minutes: 50
 
@@ -107,37 +107,67 @@ jobs:
       - name: Build unsigned iOS release app
         run: flutter build ios --release --no-codesign
 
+      - name: Prepare iOS release assets
+        run: |
+          mkdir -p dist/ios
+          ditto -c -k --sequesterRsrc --keepParent \
+            build/ios/iphoneos/Runner.app \
+            "dist/ios/chimusic-${GITHUB_REF_NAME}-ios-runner-app.zip"
+
+      - name: Upload iOS release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: chimusic-release-ios
+          path: dist/ios/*
+          retention-days: 7
+
+  macos:
+    name: Package macOS Release
+    runs-on: macos-latest
+    timeout-minutes: 50
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: ./.github/actions/setup-flutter
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: ${{ env.FLUTTER_CHANNEL }}
+
+      - name: Install dependencies
+        run: flutter pub get
+
       - name: Build macOS release app
         run: flutter build macos --release
 
-      - name: Prepare Apple release assets
+      - name: Prepare macOS release assets
         run: |
-          mkdir -p dist/apple
-          ditto -c -k --sequesterRsrc --keepParent \
-            build/ios/iphoneos/Runner.app \
-            "dist/apple/chimusic-${GITHUB_REF_NAME}-ios-runner-app.zip"
+          mkdir -p dist/macos
           ditto -c -k --sequesterRsrc --keepParent \
             build/macos/Build/Products/Release/chimusic.app \
-            "dist/apple/chimusic-${GITHUB_REF_NAME}-macos-app.zip"
+            "dist/macos/chimusic-${GITHUB_REF_NAME}-macos-app.zip"
           hdiutil create \
             -volname "ChiMusic" \
             -srcfolder build/macos/Build/Products/Release/chimusic.app \
             -ov \
             -format UDZO \
-            "dist/apple/chimusic-${GITHUB_REF_NAME}-macos.dmg"
+            "dist/macos/chimusic-${GITHUB_REF_NAME}-macos.dmg"
 
-      - name: Upload Apple release assets
+      - name: Upload macOS release assets
         uses: actions/upload-artifact@v4
         with:
-          name: chimusic-release-apple
-          path: dist/apple/*
+          name: chimusic-release-macos
+          path: dist/macos/*
           retention-days: 7
 
   publish:
     name: Publish GitHub Release Assets
     needs:
       - android
-      - apple
+      - ios
+      - macos
     runs-on: ubuntu-latest
     timeout-minutes: 15
 

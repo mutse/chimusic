@@ -89,8 +89,8 @@ jobs:
           path: dist/android/*
           retention-days: 14
 
-  apple:
-    name: Build iOS And macOS Artifacts
+  ios:
+    name: Build iOS Artifact
     needs: quality
     runs-on: macos-latest
     timeout-minutes: 45
@@ -111,29 +111,60 @@ jobs:
       - name: Build unsigned iOS release app
         run: flutter build ios --release --no-codesign
 
+      - name: Package iOS artifact
+        run: |
+          short_sha="${GITHUB_SHA::7}"
+          mkdir -p dist/ios
+          ditto -c -k --sequesterRsrc --keepParent \
+            build/ios/iphoneos/Runner.app \
+            "dist/ios/chimusic-${short_sha}-ios-runner-app.zip"
+
+      - name: Upload iOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chimusic-ios-ci-${{ github.sha }}
+          path: dist/ios/*
+          retention-days: 14
+
+  macos:
+    name: Build macOS Artifacts
+    needs: quality
+    runs-on: macos-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: ./.github/actions/setup-flutter
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: ${{ env.FLUTTER_CHANNEL }}
+
+      - name: Install dependencies
+        run: flutter pub get
+
       - name: Build macOS release app
         run: flutter build macos --release
 
-      - name: Package Apple artifacts
+      - name: Package macOS artifacts
         run: |
           short_sha="${GITHUB_SHA::7}"
-          mkdir -p dist/apple
-          ditto -c -k --sequesterRsrc --keepParent \
-            build/ios/iphoneos/Runner.app \
-            "dist/apple/chimusic-${short_sha}-ios-runner-app.zip"
+          mkdir -p dist/macos
           ditto -c -k --sequesterRsrc --keepParent \
             build/macos/Build/Products/Release/chimusic.app \
-            "dist/apple/chimusic-${short_sha}-macos-app.zip"
+            "dist/macos/chimusic-${short_sha}-macos-app.zip"
           hdiutil create \
             -volname "ChiMusic" \
             -srcfolder build/macos/Build/Products/Release/chimusic.app \
             -ov \
             -format UDZO \
-            "dist/apple/chimusic-${short_sha}-macos.dmg"
+            "dist/macos/chimusic-${short_sha}-macos.dmg"
 
-      - name: Upload Apple artifacts
+      - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: chimusic-apple-ci-${{ github.sha }}
-          path: dist/apple/*
+          name: chimusic-macos-ci-${{ github.sha }}
+          path: dist/macos/*
           retention-days: 14
