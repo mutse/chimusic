@@ -14,20 +14,21 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   testWidgets('boots into the primary navigation shell', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(430, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
     final controller = MusicAppController(enableAudio: false);
+    addTearDown(controller.dispose);
 
     await tester.pumpWidget(ChiMusicRoot(controller: controller));
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 60));
 
-    expect(find.text('Home'), findsWidgets);
-    expect(find.text('Search'), findsWidgets);
-    expect(find.text('Library'), findsWidgets);
-    expect(
-      find.text('Turn local files into a full music app experience.'),
-      findsOneWidget,
-    );
-
-    controller.dispose();
+    expect(find.text('首页'), findsWidgets);
+    expect(find.text('音乐库'), findsOneWidget);
+    expect(find.text('记录'), findsOneWidget);
+    expect(find.text('设置'), findsOneWidget);
+    expect(find.text('音乐库还是空的'), findsOneWidget);
   });
 
   testWidgets('home metrics do not overflow on compact wide layouts', (
@@ -36,13 +37,30 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(860, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
-    final controller = MusicAppController(enableAudio: false);
+    final track = Track(
+      id: '/music/home/North Coast - Resume Ready.mp3',
+      filePath: '/music/home/North Coast - Resume Ready.mp3',
+      fileName: 'North Coast - Resume Ready.mp3',
+      folderPath: '/music/home',
+      title: 'Resume Ready',
+      artist: 'North Coast',
+      album: 'Sea Glass',
+      palette: const [Color(0xFF1ED760), Color(0xFF0F5132), Color(0xFF111318)],
+      importedAt: DateTime(2026, 5, 6, 15),
+      duration: const Duration(minutes: 4),
+      fileExtension: 'mp3',
+    );
+    final controller = MusicAppController(
+      enableAudio: false,
+      initialTracks: [track],
+    );
     addTearDown(controller.dispose);
 
     await tester.pumpWidget(ChiMusicRoot(controller: controller));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
 
+    expect(find.text('最近添加'), findsOneWidget);
     expect(find.text('Resume Ready'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -128,6 +146,8 @@ void main() {
         sessionStore: SharedPreferencesMusicSessionStore(),
       );
       addTearDown(controller.dispose);
+      await tester.binding.setSurfaceSize(const Size(430, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
 
       await tester.pumpWidget(ChiMusicRoot(controller: controller));
       await tester.pump();
@@ -146,13 +166,17 @@ void main() {
       expect(restoredController.libraryFilter, LibraryFilter.favorites);
       expect(restoredController.currentTrack?.title, 'Voyager');
       expect(restoredController.position, const Duration(seconds: 61));
+      expect(find.text('音乐库'), findsWidgets);
       expect(find.text('Voyager'), findsWidgets);
     },
   );
 
   testWidgets(
-    'library screen renders history, resume, and most played sections',
+    'history page renders saved playback entries and export actions',
     (tester) async {
+      await tester.binding.setSurfaceSize(const Size(430, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
       final resumeTrack = Track(
         id: '/music/history/North Coast - Replay.mp3',
         filePath: '/music/history/North Coast - Replay.mp3',
@@ -222,11 +246,13 @@ void main() {
 
       await tester.pumpWidget(ChiMusicRoot(controller: controller));
       await tester.pump();
+      await tester.tap(find.text('记录'));
+      await tester.pumpAndSettle();
 
-      expect(find.text('History'), findsOneWidget);
-      expect(find.text('Recent Sessions'), findsOneWidget);
-      expect(find.text('Resume'), findsOneWidget);
-      expect(find.text('Most Played'), findsOneWidget);
+      expect(find.text('播放记录'), findsOneWidget);
+      expect(find.text('CSV'), findsOneWidget);
+      expect(find.text('JSON'), findsOneWidget);
+      expect(find.text('清空'), findsOneWidget);
       expect(find.text('Replay'), findsWidgets);
       expect(find.text('Looped'), findsWidgets);
     },
@@ -235,6 +261,9 @@ void main() {
   testWidgets('now playing sheet shows queue, lyrics, and history tabs', (
     tester,
   ) async {
+    await tester.binding.setSurfaceSize(const Size(430, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
     final track = Track(
       id: '/music/stage/North Coast - Blue Horizon.mp3',
       filePath: '/music/stage/North Coast - Blue Horizon.mp3',

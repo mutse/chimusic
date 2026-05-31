@@ -196,6 +196,15 @@ class MusicAppController extends ChangeNotifier {
   bool get isShuffleEnabled => _isShuffleEnabled;
   bool get isRepeatEnabled => _isRepeatEnabled;
   List<Track> get queue => List<Track>.unmodifiable(_queue);
+  bool get canSkipNext {
+    final currentTrack = _currentTrack;
+    if (_queue.isEmpty || currentTrack == null) {
+      return false;
+    }
+
+    return _queue.length > 1 || _isRepeatEnabled;
+  }
+
   String? get statusMessage => _statusMessage;
   String? get aiSearchSummary => _aiSearchSummary;
   UserProfile? get userProfile => _userProfile;

@@ -32,6 +32,38 @@ enum _HistoryExportFormat {
   final String suggestedFileName;
 }
 
+List<Color> _desktopTrackPalette(Track? track) {
+  final palette = track?.palette;
+  if (palette == null || palette.isEmpty) {
+    return <Color>[
+      _DesktopPalette.accent,
+      _DesktopPalette.accentSoft,
+      _DesktopPalette.bg3,
+    ];
+  }
+  return palette;
+}
+
+class _ArtworkFlight {
+  const _ArtworkFlight({
+    required this.track,
+    required this.fromRect,
+    required this.toRect,
+  });
+
+  final Track track;
+  final Rect fromRect;
+  final Rect toRect;
+
+  _ArtworkFlight copyWith({Rect? toRect}) {
+    return _ArtworkFlight(
+      track: track,
+      fromRect: fromRect,
+      toRect: toRect ?? this.toRect,
+    );
+  }
+}
+
 class MacosPlayerShell extends StatefulWidget {
   const MacosPlayerShell({super.key});
 
@@ -39,12 +71,23 @@ class MacosPlayerShell extends StatefulWidget {
   State<MacosPlayerShell> createState() => _MacosPlayerShellState();
 }
 
-class _MacosPlayerShellState extends State<MacosPlayerShell> {
+class _MacosPlayerShellState extends State<MacosPlayerShell>
+    with SingleTickerProviderStateMixin {
   late final TextEditingController _librarySearchController;
+  late final AnimationController _artworkFlightController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 620),
+  );
+  final GlobalKey _shellStackKey = GlobalKey();
+  final GlobalKey _playerArtworkKey = GlobalKey();
+  final GlobalKey _nowPlayingArtworkKey = GlobalKey();
   var _page = _DesktopPage.home;
   bool _didBootstrap = false;
+  bool _hidePlayerArtwork = false;
+  bool _hideNowPlayingArtwork = false;
   Timer? _toastTimer;
   String? _observedStatusMessage;
+  _ArtworkFlight? _artworkFlight;
 
   @override
   void initState() {
@@ -55,6 +98,7 @@ class _MacosPlayerShellState extends State<MacosPlayerShell> {
   @override
   void dispose() {
     _toastTimer?.cancel();
+    _artworkFlightController.dispose();
     _librarySearchController.dispose();
     super.dispose();
   }
@@ -90,6 +134,98 @@ class _MacosPlayerShellState extends State<MacosPlayerShell> {
       case _DesktopPage.history:
         break;
     }
+  }
+
+  Rect? _rectForKey(GlobalKey key) {
+    final box = key.currentContext?.findRenderObject() as RenderBox?;
+    final shellBox =
+        _shellStackKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || shellBox == null || !box.hasSize || !shellBox.hasSize) {
+      return null;
+    }
+
+    final topLeft = box.localToGlobal(Offset.zero, ancestor: shellBox);
+    return topLeft & box.size;
+  }
+
+  Future<void> _awaitFrame() {
+    final completer = Completer<void>();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      completer.complete();
+    });
+    return completer.future;
+  }
+
+  Future<void> _openNowPlayingWithArtworkFlight(
+    MusicAppController controller,
+  ) async {
+    final track = controller.currentTrack;
+    if (track == null) {
+      _setPage(_DesktopPage.nowPlaying, controller);
+      return;
+    }
+    if (_page == _DesktopPage.nowPlaying) {
+      return;
+    }
+
+    final fromRect = _rectForKey(_playerArtworkKey);
+    if (fromRect == null) {
+      _setPage(_DesktopPage.nowPlaying, controller);
+      return;
+    }
+
+    _artworkFlightController.stop();
+    _artworkFlightController.value = 0;
+
+    setState(() {
+      _page = _DesktopPage.nowPlaying;
+      _hidePlayerArtwork = true;
+      _hideNowPlayingArtwork = true;
+      _artworkFlight = _ArtworkFlight(
+        track: track,
+        fromRect: fromRect,
+        toRect: fromRect,
+      );
+    });
+
+    await _awaitFrame();
+    await _awaitFrame();
+    if (!mounted) {
+      return;
+    }
+    if (controller.currentTrack?.id != track.id) {
+      setState(() {
+        _artworkFlight = null;
+        _hidePlayerArtwork = false;
+        _hideNowPlayingArtwork = false;
+      });
+      return;
+    }
+
+    final toRect = _rectForKey(_nowPlayingArtworkKey);
+    if (toRect == null) {
+      setState(() {
+        _artworkFlight = null;
+        _hidePlayerArtwork = false;
+        _hideNowPlayingArtwork = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _artworkFlight = _artworkFlight?.copyWith(toRect: toRect);
+    });
+
+    await _artworkFlightController.forward(from: 0);
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _artworkFlight = null;
+      _hidePlayerArtwork = false;
+      _hideNowPlayingArtwork = false;
+    });
   }
 
   List<Track> _resolveLibraryTracks(MusicAppController controller) {
@@ -290,6 +426,7 @@ class _MacosPlayerShellState extends State<MacosPlayerShell> {
         child: SafeArea(
           bottom: false,
           child: Stack(
+            key: _shellStackKey,
             children: [
               Column(
                 children: [
@@ -354,6 +491,8 @@ class _MacosPlayerShellState extends State<MacosPlayerShell> {
                                   ),
                                   _DesktopPage.nowPlaying =>
                                     _DesktopNowPlayingPage(
+                                      artworkKey: _nowPlayingArtworkKey,
+                                      hideArtwork: _hideNowPlayingArtwork,
                                       onOpenLibrary: () => _setPage(
                                         _DesktopPage.library,
                                         controller,
@@ -376,11 +515,29 @@ class _MacosPlayerShellState extends State<MacosPlayerShell> {
                     ),
                   ),
                   _DesktopPlayerBar(
+                    artworkKey: _playerArtworkKey,
+                    hideArtwork: _hidePlayerArtwork,
                     onOpenNowPlaying: () =>
-                        _setPage(_DesktopPage.nowPlaying, controller),
+                        _openNowPlayingWithArtworkFlight(controller),
                   ),
                 ],
               ),
+              if (_artworkFlight case final flight?)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: AnimatedBuilder(
+                      animation: _artworkFlightController,
+                      builder: (context, child) {
+                        return _ArtworkFlightOverlay(
+                          flight: flight,
+                          progress: Curves.easeInOutCubic.transform(
+                            _artworkFlightController.value,
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
               Positioned(
                 left: 0,
                 right: 0,
@@ -825,9 +982,15 @@ class _DesktopLibraryPage extends StatelessWidget {
 }
 
 class _DesktopNowPlayingPage extends StatelessWidget {
-  const _DesktopNowPlayingPage({required this.onOpenLibrary});
+  const _DesktopNowPlayingPage({
+    required this.onOpenLibrary,
+    required this.artworkKey,
+    required this.hideArtwork,
+  });
 
   final VoidCallback onOpenLibrary;
+  final GlobalKey artworkKey;
+  final bool hideArtwork;
 
   @override
   Widget build(BuildContext context) {
@@ -936,10 +1099,16 @@ class _DesktopNowPlayingPage extends StatelessWidget {
                           beginOffset: stacked
                               ? const Offset(0, 0.05)
                               : const Offset(-0.04, 0),
-                          child: _NowPlayingArtworkSpotlight(
-                            track: track,
-                            size: stacked ? 240 : 280,
-                            isPlaying: controller.isPlaying,
+                          child: Opacity(
+                            opacity: hideArtwork ? 0 : 1,
+                            child: KeyedSubtree(
+                              key: artworkKey,
+                              child: _NowPlayingArtworkSpotlight(
+                                track: track,
+                                size: stacked ? 240 : 280,
+                                isPlaying: controller.isPlaying,
+                              ),
+                            ),
                           ),
                         );
 
@@ -1163,9 +1332,15 @@ class _DesktopHistoryPage extends StatelessWidget {
 }
 
 class _DesktopPlayerBar extends StatelessWidget {
-  const _DesktopPlayerBar({required this.onOpenNowPlaying});
+  const _DesktopPlayerBar({
+    required this.onOpenNowPlaying,
+    required this.artworkKey,
+    required this.hideArtwork,
+  });
 
   final VoidCallback onOpenNowPlaying;
+  final GlobalKey artworkKey;
+  final bool hideArtwork;
 
   @override
   Widget build(BuildContext context) {
@@ -1175,195 +1350,799 @@ class _DesktopPlayerBar extends StatelessWidget {
         ? null
         : (controller.currentCollection ??
               controller.collectionForTrack(track));
+    final palette = _desktopTrackPalette(track);
 
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 280),
+      duration: const Duration(milliseconds: 320),
       curve: Curves.easeInOutCubic,
-      height: 100,
-      padding: const EdgeInsets.symmetric(horizontal: 28),
+      height: 108,
       decoration: BoxDecoration(
         color: _DesktopPalette.bg1,
         border: Border(top: BorderSide(color: _DesktopPalette.border)),
       ),
-      child: Row(
+      child: Stack(
         children: [
-          Expanded(
-            flex: 4,
-            child: InkWell(
-              onTap: track == null ? null : onOpenNowPlaying,
-              borderRadius: BorderRadius.circular(14),
-              child: Row(
-                children: [
-                  ArtworkCover(
-                    title: track?.album ?? 'ChiMusic',
-                    palette:
-                        track?.palette ??
-                        <Color>[
-                          _DesktopPalette.accent,
-                          _DesktopPalette.accentSoft,
-                          _DesktopPalette.bg3,
-                        ],
-                    artworkUri: track?.artworkUri,
-                    size: 54,
-                    borderRadius: BorderRadius.circular(10),
-                    icon: Icons.music_note_rounded,
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
+          Positioned.fill(
+            child: _DesktopPlayerBarBackdrop(
+              track: track,
+              isPlaying: controller.isPlaying,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
+            child: Row(
+              children: [
+                Expanded(
+                  flex: 4,
+                  child: InkWell(
+                    onTap: track == null ? null : onOpenNowPlaying,
+                    borderRadius: BorderRadius.circular(16),
+                    child: Row(
                       children: [
-                        Text(
-                          track?.title ?? '—',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: _DesktopTypography.body.copyWith(
-                            color: _DesktopPalette.textPrimary,
-                            fontWeight: FontWeight.w500,
-                          ),
+                        _MiniNowPlayingArtwork(
+                          key: artworkKey,
+                          track: track,
+                          isPlaying: controller.isPlaying,
+                          hidden: hideArtwork,
                         ),
-                        const SizedBox(height: 3),
-                        Text(
-                          track == null
-                              ? '选择一首歌曲开始聆听'
-                              : '${track.artist} • ${collection?.title ?? track.album}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: _DesktopTypography.small.copyWith(
-                            color: _DesktopPalette.textMuted,
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 300),
+                            switchInCurve: Curves.easeOutCubic,
+                            switchOutCurve: Curves.easeInCubic,
+                            transitionBuilder: (child, animation) {
+                              return FadeTransition(
+                                opacity: animation,
+                                child: SlideTransition(
+                                  position: Tween<Offset>(
+                                    begin: const Offset(0, 0.06),
+                                    end: Offset.zero,
+                                  ).animate(animation),
+                                  child: child,
+                                ),
+                              );
+                            },
+                            child: Column(
+                              key: ValueKey(
+                                'player-meta-${track?.id ?? 'empty'}-${controller.isPlaying}-${collection?.id ?? 'none'}',
+                              ),
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    if (track != null &&
+                                        controller.isPlaying) ...[
+                                      _WaveBars(
+                                        height: 10,
+                                        color: palette.first,
+                                        minFactor: 0.26,
+                                      ),
+                                      const SizedBox(width: 8),
+                                    ],
+                                    Text(
+                                      track == null
+                                          ? '准备就绪'
+                                          : (controller.isPlaying
+                                                ? '正在播放'
+                                                : '已暂停'),
+                                      style: _DesktopTypography.mono.copyWith(
+                                        color: palette.first,
+                                      ),
+                                    ),
+                                    if (track != null &&
+                                        collection != null) ...[
+                                      const SizedBox(width: 8),
+                                      Container(
+                                        width: 4,
+                                        height: 4,
+                                        decoration: BoxDecoration(
+                                          color: _DesktopPalette.textFaint,
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          collection.title,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: _DesktopTypography.small
+                                              .copyWith(
+                                                color:
+                                                    _DesktopPalette.textMuted,
+                                              ),
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  track?.title ?? '—',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: _DesktopTypography.body.copyWith(
+                                    color: _DesktopPalette.textPrimary,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  track == null
+                                      ? '选择一首歌曲开始聆听'
+                                      : '${track.artist} • ${track.album}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: _DesktopTypography.small.copyWith(
+                                    color: _DesktopPalette.textMuted,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ],
+                    ),
+                  ),
+                ),
+                Expanded(
+                  flex: 5,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          _TransportToggleButton(
+                            icon: Icons.shuffle_rounded,
+                            enabled: controller.hasMusic,
+                            selected: controller.isShuffleEnabled,
+                            tooltip: controller.isShuffleEnabled
+                                ? '关闭随机播放'
+                                : '开启随机播放',
+                            onTap: controller.toggleShuffle,
+                          ),
+                          const SizedBox(width: 10),
+                          _TransportButton(
+                            icon: Icons.skip_previous_rounded,
+                            enabled: track != null,
+                            tooltip: '上一首 / 重新开始',
+                            onTap: controller.skipPrevious,
+                          ),
+                          const SizedBox(width: 10),
+                          _TransportButton(
+                            icon: controller.isPlaying
+                                ? Icons.pause_rounded
+                                : Icons.play_arrow_rounded,
+                            filled: true,
+                            enabled: controller.hasMusic,
+                            tooltip: controller.isPlaying ? '暂停' : '播放',
+                            onTap: controller.togglePlayPause,
+                          ),
+                          const SizedBox(width: 10),
+                          _TransportButton(
+                            icon: Icons.skip_next_rounded,
+                            enabled: controller.canSkipNext,
+                            tooltip: controller.canSkipNext
+                                ? '下一首'
+                                : '队列中没有下一首',
+                            onTap: controller.skipNext,
+                          ),
+                          const SizedBox(width: 10),
+                          _TransportToggleButton(
+                            icon: Icons.repeat_rounded,
+                            enabled: controller.hasMusic,
+                            selected: controller.isRepeatEnabled,
+                            tooltip: controller.isRepeatEnabled
+                                ? '关闭循环播放'
+                                : '开启循环播放',
+                            onTap: controller.toggleRepeat,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          SizedBox(
+                            width: 42,
+                            child: Text(
+                              formatDuration(
+                                controller.position,
+                                placeholder: '00:00',
+                              ),
+                              style: _DesktopTypography.mono.copyWith(
+                                color: _DesktopPalette.textFaint,
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            child: _InteractiveProgressBar(
+                              progress: controller.playbackProgress,
+                              palette: palette,
+                              isPlaying: controller.isPlaying,
+                              onSeek: track == null
+                                  ? null
+                                  : (value) {
+                                      controller.seekToFraction(value);
+                                    },
+                            ),
+                          ),
+                          SizedBox(
+                            width: 52,
+                            child: Text(
+                              formatDuration(track?.duration),
+                              textAlign: TextAlign.right,
+                              style: _DesktopTypography.mono.copyWith(
+                                color: _DesktopPalette.textFaint,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  flex: 3,
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: SizedBox(
+                      width: 244,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            alignment: WrapAlignment.end,
+                            children: [
+                              if (collection != null)
+                                _PlayerModePill(
+                                  icon: Icons.queue_music_rounded,
+                                  label: collection.title,
+                                  color: palette.first,
+                                ),
+                              if (controller.isShuffleEnabled)
+                                _PlayerModePill(
+                                  icon: Icons.shuffle_rounded,
+                                  label: 'Shuffle',
+                                  color: palette.first,
+                                ),
+                              if (controller.isRepeatEnabled)
+                                _PlayerModePill(
+                                  icon: Icons.repeat_rounded,
+                                  label: 'Repeat',
+                                  color: palette.first,
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 180),
+                                switchInCurve: Curves.easeOutCubic,
+                                switchOutCurve: Curves.easeInCubic,
+                                transitionBuilder: (child, animation) {
+                                  return FadeTransition(
+                                    opacity: animation,
+                                    child: ScaleTransition(
+                                      scale: animation,
+                                      child: child,
+                                    ),
+                                  );
+                                },
+                                child: Icon(
+                                  controller.volume <= 0.01
+                                      ? Icons.volume_off_rounded
+                                      : controller.volume < 0.5
+                                      ? Icons.volume_down_rounded
+                                      : Icons.volume_up_rounded,
+                                  key: ValueKey<int>(
+                                    controller.volume <= 0.01
+                                        ? 0
+                                        : (controller.volume < 0.5 ? 1 : 2),
+                                  ),
+                                  color: _DesktopPalette.textMuted,
+                                  size: 18,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: SliderTheme(
+                                  data: SliderTheme.of(context).copyWith(
+                                    trackHeight: 3,
+                                    activeTrackColor: palette.first,
+                                    inactiveTrackColor: _DesktopPalette.bg4,
+                                    thumbColor: _DesktopPalette.textPrimary,
+                                    overlayShape:
+                                        SliderComponentShape.noOverlay,
+                                  ),
+                                  child: Slider(
+                                    value: controller.volume,
+                                    onChanged: controller.setVolume,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              _TransportButton(
+                                icon: Icons.open_in_full_rounded,
+                                enabled: track != null,
+                                tooltip: track == null
+                                    ? '选择歌曲后可展开播放页'
+                                    : '展开播放页',
+                                onTap: () async {
+                                  onOpenNowPlaying();
+                                },
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DesktopPlayerBarBackdrop extends StatefulWidget {
+  const _DesktopPlayerBarBackdrop({
+    required this.track,
+    required this.isPlaying,
+  });
+
+  final Track? track;
+  final bool isPlaying;
+
+  @override
+  State<_DesktopPlayerBarBackdrop> createState() =>
+      _DesktopPlayerBarBackdropState();
+}
+
+class _DesktopPlayerBarBackdropState extends State<_DesktopPlayerBarBackdrop>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 14),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final track = widget.track;
+    if (track == null) {
+      return const SizedBox.shrink();
+    }
+
+    final palette = _desktopTrackPalette(track);
+    final primary = palette.first;
+    final secondary = palette.length > 1
+        ? palette[1]
+        : _DesktopPalette.accentSoft;
+    final tertiary = palette.length > 2 ? palette[2] : _DesktopPalette.bg3;
+    final intensity = widget.isPlaying ? 1.0 : 0.52;
+
+    return IgnorePointer(
+      child: ClipRect(
+        child: AnimatedBuilder(
+          animation: _controller,
+          builder: (context, child) {
+            final theta = _controller.value * math.pi * 2;
+            final driftX = math.sin(theta);
+            final driftY = math.cos(theta);
+
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                      colors: [
+                        primary.withValues(alpha: 0.06 * intensity),
+                        _DesktopPalette.bg1.withValues(alpha: 0.0),
+                        secondary.withValues(alpha: 0.05 * intensity),
+                      ],
+                    ),
+                  ),
+                ),
+                ImageFiltered(
+                  imageFilter: ui.ImageFilter.blur(sigmaX: 54, sigmaY: 54),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      _AtmosphereOrb(
+                        alignment: const Alignment(-0.92, -0.24),
+                        size: const Size(240, 240),
+                        offset: Offset(18 * driftX, 8 * driftY),
+                        colors: [
+                          primary.withValues(alpha: 0.18 * intensity),
+                          secondary.withValues(alpha: 0.1 * intensity),
+                          Colors.transparent,
+                        ],
+                      ),
+                      _AtmosphereOrb(
+                        alignment: const Alignment(0.2, 0.72),
+                        size: const Size(320, 320),
+                        offset: Offset(-24 * driftY, 10 * driftX),
+                        colors: [
+                          secondary.withValues(alpha: 0.12 * intensity),
+                          tertiary.withValues(alpha: 0.08 * intensity),
+                          Colors.transparent,
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                Align(
+                  alignment: Alignment.topLeft,
+                  child: FractionallySizedBox(
+                    widthFactor: 0.36 + (0.06 * (driftX + 1) / 2),
+                    child: Container(
+                      height: 1.2,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            primary.withValues(alpha: 0.0),
+                            primary.withValues(alpha: 0.7 * intensity),
+                            secondary.withValues(alpha: 0.0),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _MiniNowPlayingArtwork extends StatefulWidget {
+  const _MiniNowPlayingArtwork({
+    super.key,
+    required this.track,
+    required this.isPlaying,
+    this.hidden = false,
+  });
+
+  final Track? track;
+  final bool isPlaying;
+  final bool hidden;
+
+  @override
+  State<_MiniNowPlayingArtwork> createState() => _MiniNowPlayingArtworkState();
+}
+
+class _MiniNowPlayingArtworkState extends State<_MiniNowPlayingArtwork>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1800),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.isPlaying) {
+      _controller.repeat(reverse: true);
+    } else {
+      _controller.value = 0.18;
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _MiniNowPlayingArtwork oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isPlaying == widget.isPlaying &&
+        oldWidget.track?.id == widget.track?.id) {
+      return;
+    }
+
+    if (widget.isPlaying) {
+      _controller.repeat(reverse: true);
+    } else {
+      _controller
+        ..stop()
+        ..animateTo(
+          0.18,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+        );
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final track = widget.track;
+    final palette = _desktopTrackPalette(track);
+    final primary = palette.first;
+    final secondary = palette.length > 1
+        ? palette[1]
+        : _DesktopPalette.accentSoft;
+
+    return SizedBox(
+      width: 62,
+      height: 62,
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, child) {
+          if (widget.hidden) {
+            return const SizedBox.expand();
+          }
+
+          final phase = widget.isPlaying ? _controller.value : 0.18;
+          final glow = 0.24 + (0.2 * phase);
+          final scale = track == null ? 1.0 : 0.98 + (0.04 * phase);
+
+          return Stack(
+            clipBehavior: Clip.none,
+            alignment: Alignment.center,
+            children: [
+              if (track != null)
+                Transform.scale(
+                  scale: scale,
+                  child: Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: primary.withValues(alpha: glow),
+                          blurRadius: 26,
+                          spreadRadius: 1.5,
+                        ),
+                        BoxShadow(
+                          color: secondary.withValues(alpha: glow * 0.64),
+                          blurRadius: 18,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              Container(
+                padding: const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: track == null
+                        ? _DesktopPalette.borderStrong
+                        : primary.withValues(
+                            alpha: widget.isPlaying ? 0.54 : 0.28,
+                          ),
+                  ),
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Colors.white.withValues(alpha: 0.06),
+                      Colors.transparent,
+                    ],
+                  ),
+                ),
+                child: ArtworkCover(
+                  title: track?.album ?? 'ChiMusic',
+                  palette: palette,
+                  artworkUri: track?.artworkUri,
+                  size: 54,
+                  borderRadius: BorderRadius.circular(11),
+                  icon: Icons.music_note_rounded,
+                ),
+              ),
+              if (track != null)
+                Positioned(
+                  right: -2,
+                  bottom: -2,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeInOutCubic,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _DesktopPalette.bg0.withValues(alpha: 0.92),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: primary.withValues(alpha: 0.3)),
+                    ),
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 180),
+                      switchInCurve: Curves.easeOutCubic,
+                      switchOutCurve: Curves.easeInCubic,
+                      transitionBuilder: (child, animation) {
+                        return FadeTransition(
+                          opacity: animation,
+                          child: ScaleTransition(
+                            scale: animation,
+                            child: child,
+                          ),
+                        );
+                      },
+                      child: widget.isPlaying
+                          ? _WaveBars(
+                              key: const ValueKey('playing'),
+                              height: 10,
+                              color: primary,
+                              minFactor: 0.3,
+                            )
+                          : Icon(
+                              Icons.play_arrow_rounded,
+                              key: const ValueKey('paused'),
+                              size: 12,
+                              color: primary,
+                            ),
+                    ),
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _ArtworkFlightOverlay extends StatelessWidget {
+  const _ArtworkFlightOverlay({required this.flight, required this.progress});
+
+  final _ArtworkFlight flight;
+  final double progress;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = _desktopTrackPalette(flight.track);
+    final primary = palette.first;
+    final secondary = palette.length > 1
+        ? palette[1]
+        : _DesktopPalette.accentSoft;
+    final rect = Rect.lerp(flight.fromRect, flight.toRect, progress)!;
+    final corner = ui.lerpDouble(14, rect.width * 0.1, progress) ?? 14;
+    final shimmer = Curves.easeOutCubic.transform(progress);
+    final glow = 0.18 + (0.14 * math.sin(progress * math.pi));
+
+    return Stack(
+      children: [
+        Positioned(
+          left: rect.left,
+          top: rect.top,
+          width: rect.width,
+          height: rect.height,
+          child: IgnorePointer(
+            child: Transform.scale(
+              scale: 0.98 + (0.02 * shimmer),
+              child: Stack(
+                clipBehavior: Clip.none,
+                alignment: Alignment.center,
+                children: [
+                  Positioned.fill(
+                    left: -24,
+                    top: -24,
+                    right: -24,
+                    bottom: -24,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: RadialGradient(
+                          colors: [
+                            primary.withValues(alpha: glow),
+                            secondary.withValues(alpha: glow * 0.72),
+                            Colors.transparent,
+                          ],
+                          stops: const [0, 0.48, 1],
+                        ),
+                      ),
+                    ),
+                  ),
+                  Container(
+                    padding: EdgeInsets.all(ui.lerpDouble(2, 3, progress) ?? 2),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(corner),
+                      border: Border.all(
+                        color: primary.withValues(
+                          alpha: 0.4 + (0.18 * progress),
+                        ),
+                      ),
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          Colors.white.withValues(alpha: 0.1),
+                          Colors.transparent,
+                        ],
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: primary.withValues(
+                            alpha: 0.18 + (0.14 * shimmer),
+                          ),
+                          blurRadius: 28 + (36 * shimmer),
+                          spreadRadius: 1,
+                        ),
+                      ],
+                    ),
+                    child: ArtworkCover(
+                      title: flight.track.album,
+                      palette: palette,
+                      artworkUri: flight.track.artworkUri,
+                      size: rect.width - ((ui.lerpDouble(4, 6, progress) ?? 4)),
+                      borderRadius: BorderRadius.circular(corner * 0.82),
+                      showTitle: rect.width > 120,
+                      icon: Icons.music_note_rounded,
                     ),
                   ),
                 ],
               ),
             ),
           ),
-          Expanded(
-            flex: 5,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _TransportToggleButton(
-                      icon: Icons.shuffle_rounded,
-                      enabled: controller.hasMusic,
-                      selected: controller.isShuffleEnabled,
-                      onTap: controller.toggleShuffle,
-                    ),
-                    const SizedBox(width: 10),
-                    _TransportButton(
-                      icon: Icons.skip_previous_rounded,
-                      enabled: track != null,
-                      onTap: controller.skipPrevious,
-                    ),
-                    const SizedBox(width: 10),
-                    _TransportButton(
-                      icon: controller.isPlaying
-                          ? Icons.pause_rounded
-                          : Icons.play_arrow_rounded,
-                      filled: true,
-                      enabled: controller.hasMusic,
-                      onTap: controller.togglePlayPause,
-                    ),
-                    const SizedBox(width: 10),
-                    _TransportButton(
-                      icon: Icons.skip_next_rounded,
-                      enabled: track != null,
-                      onTap: controller.skipNext,
-                    ),
-                    const SizedBox(width: 10),
-                    _TransportToggleButton(
-                      icon: Icons.repeat_rounded,
-                      enabled: controller.hasMusic,
-                      selected: controller.isRepeatEnabled,
-                      onTap: controller.toggleRepeat,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    SizedBox(
-                      width: 42,
-                      child: Text(
-                        formatDuration(
-                          controller.position,
-                          placeholder: '00:00',
-                        ),
-                        style: _DesktopTypography.mono.copyWith(
-                          color: _DesktopPalette.textFaint,
-                        ),
-                      ),
-                    ),
-                    Expanded(
-                      child: _InteractiveProgressBar(
-                        progress: controller.playbackProgress,
-                        onSeek: track == null
-                            ? null
-                            : (value) {
-                                controller.seekToFraction(value);
-                              },
-                      ),
-                    ),
-                    SizedBox(
-                      width: 52,
-                      child: Text(
-                        formatDuration(track?.duration),
-                        textAlign: TextAlign.right,
-                        style: _DesktopTypography.mono.copyWith(
-                          color: _DesktopPalette.textFaint,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            flex: 3,
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: SizedBox(
-                width: 210,
-                child: Row(
-                  children: [
-                    Icon(
-                      controller.volume <= 0.01
-                          ? Icons.volume_off_rounded
-                          : controller.volume < 0.5
-                          ? Icons.volume_down_rounded
-                          : Icons.volume_up_rounded,
-                      color: _DesktopPalette.textMuted,
-                      size: 18,
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: SliderTheme(
-                        data: SliderTheme.of(context).copyWith(
-                          trackHeight: 3,
-                          activeTrackColor: _DesktopPalette.accent,
-                          inactiveTrackColor: _DesktopPalette.bg4,
-                          thumbColor: _DesktopPalette.textPrimary,
-                          overlayShape: SliderComponentShape.noOverlay,
-                        ),
-                        child: Slider(
-                          value: controller.volume,
-                          onChanged: controller.setVolume,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PlayerModePill extends StatelessWidget {
+  const _PlayerModePill({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 132),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: color.withValues(alpha: 0.18)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 13, color: color),
+            const SizedBox(width: 6),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 92),
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: _DesktopTypography.mono.copyWith(color: color),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -2083,6 +2862,28 @@ class _NowPlayingMeta extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = ChiMusicScope.watch(context);
     final entry = controller.playbackHistoryEntryForTrack(track.id);
+    final isLiked = controller.isTrackLiked(track.id);
+
+    Future<void> handleShuffleToggle() async {
+      await controller.toggleShuffle();
+      controller.setStatusMessage(
+        controller.isShuffleEnabled ? '已开启随机播放。' : '已关闭随机播放。',
+      );
+    }
+
+    Future<void> handleRepeatToggle() async {
+      await controller.toggleRepeat();
+      controller.setStatusMessage(
+        controller.isRepeatEnabled ? '已开启循环播放。' : '已关闭循环播放。',
+      );
+    }
+
+    void handleLikedToggle() {
+      controller.toggleLikedTrack(track.id);
+      controller.setStatusMessage(
+        isLiked ? '已取消喜欢《${track.title}》。' : '已加入喜欢《${track.title}》。',
+      );
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2135,53 +2936,66 @@ class _NowPlayingMeta extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 26),
-        Row(
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             _TransportToggleButton(
               icon: Icons.shuffle_rounded,
               enabled: true,
               selected: controller.isShuffleEnabled,
-              onTap: controller.toggleShuffle,
+              tooltip: controller.isShuffleEnabled ? '关闭随机播放' : '开启随机播放',
+              onTap: handleShuffleToggle,
             ),
-            const SizedBox(width: 12),
             _TransportButton(
               icon: Icons.skip_previous_rounded,
               enabled: true,
+              tooltip: '上一首 / 重新开始',
               onTap: controller.skipPrevious,
             ),
-            const SizedBox(width: 12),
             _TransportButton(
               icon: controller.isPlaying
                   ? Icons.pause_rounded
                   : Icons.play_arrow_rounded,
               filled: true,
               enabled: true,
+              tooltip: controller.isPlaying ? '暂停' : '播放',
               onTap: controller.togglePlayPause,
             ),
-            const SizedBox(width: 12),
             _TransportButton(
               icon: Icons.skip_next_rounded,
-              enabled: true,
+              enabled: controller.canSkipNext,
+              tooltip: controller.canSkipNext ? '下一首' : '队列中没有下一首',
               onTap: controller.skipNext,
             ),
-            const SizedBox(width: 12),
             _TransportToggleButton(
               icon: Icons.repeat_rounded,
               enabled: true,
               selected: controller.isRepeatEnabled,
-              onTap: controller.toggleRepeat,
+              tooltip: controller.isRepeatEnabled ? '关闭循环播放' : '开启循环播放',
+              onTap: handleRepeatToggle,
             ),
-            const SizedBox(width: 16),
             _RoundIconButton(
-              icon: controller.isTrackLiked(track.id)
+              icon: isLiked
                   ? Icons.favorite_rounded
                   : Icons.favorite_border_rounded,
-              tooltip: controller.isTrackLiked(track.id) ? '取消喜欢' : '加入喜欢',
-              color: controller.isTrackLiked(track.id)
+              tooltip: isLiked ? '取消喜欢' : '加入喜欢',
+              color: isLiked
                   ? _DesktopPalette.accent
                   : _DesktopPalette.textMuted,
-              onTap: () => controller.toggleLikedTrack(track.id),
+              onTap: handleLikedToggle,
             ),
+            if (collection case final currentCollection?)
+              _RoundIconButton(
+                icon: Icons.queue_music_rounded,
+                tooltip: '打开当前列表',
+                onTap: () {
+                  Navigator.of(
+                    context,
+                  ).push(CollectionDetailPage.route(currentCollection));
+                },
+              ),
           ],
         ),
       ],
@@ -2903,46 +3717,123 @@ class _SortDropdown extends StatelessWidget {
 }
 
 class _InteractiveProgressBar extends StatelessWidget {
-  const _InteractiveProgressBar({required this.progress, this.onSeek});
+  const _InteractiveProgressBar({
+    required this.progress,
+    this.palette = const <Color>[],
+    this.isPlaying = false,
+    this.onSeek,
+  });
 
   final double progress;
+  final List<Color> palette;
+  final bool isPlaying;
   final ValueChanged<double>? onSeek;
+
+  void _seekTo(double dx, double width) {
+    if (onSeek == null) {
+      return;
+    }
+    final safeWidth = width <= 0 ? 1.0 : width;
+    onSeek!((dx / safeWidth).clamp(0.0, 1.0));
+  }
 
   @override
   Widget build(BuildContext context) {
     final clamped = progress.clamp(0.0, 1.0).toDouble();
+    final resolvedPalette = palette.isEmpty
+        ? <Color>[_DesktopPalette.accent, _DesktopPalette.accentSoft]
+        : palette;
+    final primary = resolvedPalette.first;
+    final secondary = resolvedPalette.length > 1
+        ? resolvedPalette[1]
+        : _DesktopPalette.accentSoft;
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final fillWidth = constraints.maxWidth * clamped;
+        final width = constraints.maxWidth;
+        final fillWidth = width * clamped;
+        final thumbSize = isPlaying ? 11.0 : 9.0;
+        final thumbLeft = (fillWidth - (thumbSize / 2))
+            .clamp(0.0, math.max(0.0, width - thumbSize))
+            .toDouble();
+
         return GestureDetector(
+          behavior: HitTestBehavior.opaque,
           onTapDown: onSeek == null
               ? null
               : (details) {
-                  final fraction =
-                      details.localPosition.dx /
-                      constraints.maxWidth.clamp(1, double.infinity);
-                  onSeek!(fraction.clamp(0.0, 1.0));
+                  _seekTo(details.localPosition.dx, width);
+                },
+          onHorizontalDragStart: onSeek == null
+              ? null
+              : (details) {
+                  _seekTo(details.localPosition.dx, width);
+                },
+          onHorizontalDragUpdate: onSeek == null
+              ? null
+              : (details) {
+                  _seekTo(details.localPosition.dx, width);
                 },
           child: MouseRegion(
             cursor: onSeek == null
                 ? SystemMouseCursors.basic
                 : SystemMouseCursors.click,
-            child: Container(
-              height: 3,
-              decoration: BoxDecoration(
-                color: _DesktopPalette.bg4,
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Align(
+            child: SizedBox(
+              height: 18,
+              child: Stack(
                 alignment: Alignment.centerLeft,
-                child: Container(
-                  width: fillWidth,
-                  decoration: BoxDecoration(
-                    color: _DesktopPalette.accent,
-                    borderRadius: BorderRadius.circular(999),
+                children: [
+                  Container(
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: _DesktopPalette.bg4,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
                   ),
-                ),
+                  Container(
+                    width: fillWidth,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          primary.withValues(alpha: 0.96),
+                          secondary.withValues(alpha: 0.82),
+                        ],
+                      ),
+                      borderRadius: BorderRadius.circular(999),
+                      boxShadow: [
+                        if (isPlaying)
+                          BoxShadow(
+                            color: primary.withValues(alpha: 0.24),
+                            blurRadius: 12,
+                            spreadRadius: 1,
+                          ),
+                      ],
+                    ),
+                  ),
+                  if (fillWidth > 0)
+                    Positioned(
+                      left: thumbLeft,
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 220),
+                        curve: Curves.easeInOutCubic,
+                        width: thumbSize,
+                        height: thumbSize,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: _DesktopPalette.textPrimary,
+                          boxShadow: [
+                            BoxShadow(
+                              color: primary.withValues(
+                                alpha: isPlaying ? 0.3 : 0.16,
+                              ),
+                              blurRadius: isPlaying ? 16 : 10,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
           ),
@@ -2992,38 +3883,80 @@ class _TransportButton extends StatelessWidget {
     required this.enabled,
     required this.onTap,
     this.filled = false,
+    this.tooltip,
   });
 
   final IconData icon;
   final bool enabled;
   final Future<void> Function() onTap;
   final bool filled;
+  final String? tooltip;
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
+    final button = InkWell(
       onTap: enabled ? () => onTap() : null,
       borderRadius: BorderRadius.circular(999),
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeInOutCubic,
         width: filled ? 42 : 34,
         height: filled ? 42 : 34,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
+          gradient: filled && enabled
+              ? LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    _DesktopPalette.textPrimary,
+                    _DesktopPalette.textPrimary.withValues(alpha: 0.88),
+                  ],
+                )
+              : null,
           color: filled
-              ? (enabled ? _DesktopPalette.textPrimary : _DesktopPalette.bg4)
+              ? (enabled ? null : _DesktopPalette.bg4)
               : Colors.transparent,
+          boxShadow: [
+            if (filled && enabled)
+              BoxShadow(
+                color: _DesktopPalette.accent.withValues(alpha: 0.18),
+                blurRadius: 16,
+                spreadRadius: 1,
+              ),
+          ],
         ),
-        child: Icon(
-          icon,
-          size: filled ? 22 : 18,
-          color: filled
-              ? _DesktopPalette.bg0
-              : (enabled
-                    ? _DesktopPalette.textMuted
-                    : _DesktopPalette.textFaint),
+        child: Center(
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 180),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeInCubic,
+            transitionBuilder: (child, animation) {
+              return FadeTransition(
+                opacity: animation,
+                child: ScaleTransition(scale: animation, child: child),
+              );
+            },
+            child: Icon(
+              icon,
+              key: ValueKey(icon),
+              size: filled ? 22 : 18,
+              color: filled
+                  ? _DesktopPalette.bg0
+                  : (enabled
+                        ? _DesktopPalette.textMuted
+                        : _DesktopPalette.textFaint),
+            ),
+          ),
         ),
       ),
     );
+
+    if (tooltip == null || tooltip!.isEmpty) {
+      return button;
+    }
+
+    return Tooltip(message: tooltip!, child: button);
   }
 }
 
@@ -3033,16 +3966,18 @@ class _TransportToggleButton extends StatelessWidget {
     required this.enabled,
     required this.selected,
     required this.onTap,
+    this.tooltip,
   });
 
   final IconData icon;
   final bool enabled;
   final bool selected;
   final Future<void> Function() onTap;
+  final String? tooltip;
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
+    final button = InkWell(
       onTap: enabled ? () => onTap() : null,
       borderRadius: BorderRadius.circular(999),
       child: AnimatedContainer(
@@ -3067,6 +4002,12 @@ class _TransportToggleButton extends StatelessWidget {
         ),
       ),
     );
+
+    if (tooltip == null || tooltip!.isEmpty) {
+      return button;
+    }
+
+    return Tooltip(message: tooltip!, child: button);
   }
 }
 

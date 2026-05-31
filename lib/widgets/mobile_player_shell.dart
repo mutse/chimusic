@@ -64,6 +64,7 @@ class _MobilePlayerShellState extends State<MobilePlayerShell> {
   String _libQuery = '';
   _MobileSort _sort = _MobileSort.added;
   bool _likedFilter = false;
+  bool _didBootstrap = false;
   Timer? _toastTimer;
   String? _observedStatusMessage;
 
@@ -104,11 +105,41 @@ class _MobilePlayerShellState extends State<MobilePlayerShell> {
     });
   }
 
-  void _setPage(_MobilePage page) {
+  void _bootstrapFromController(MusicAppController controller) {
+    if (_didBootstrap) {
+      return;
+    }
+
+    _page = switch (controller.selectedTab) {
+      MusicTab.library || MusicTab.search => _MobilePage.library,
+      _ => _MobilePage.home,
+    };
+    _libQuery = controller.searchQuery;
+    _likedFilter = controller.libraryFilter == LibraryFilter.favorites;
+    _sort = switch (controller.librarySort) {
+      LibrarySort.recent => _MobileSort.added,
+      LibrarySort.title => _MobileSort.name,
+      LibrarySort.length => _MobileSort.duration,
+    };
+    _librarySearchController.text = _libQuery;
+    _didBootstrap = true;
+  }
+
+  void _setPage(_MobilePage page, [MusicAppController? controller]) {
     if (_page == page) {
       return;
     }
     setState(() => _page = page);
+
+    switch (page) {
+      case _MobilePage.home:
+        controller?.selectTab(MusicTab.home);
+      case _MobilePage.library:
+        controller?.selectTab(MusicTab.library);
+      case _MobilePage.history:
+      case _MobilePage.settings:
+        break;
+    }
   }
 
   Future<void> _exportHistory(
@@ -185,6 +216,7 @@ class _MobilePlayerShellState extends State<MobilePlayerShell> {
   @override
   Widget build(BuildContext context) {
     final controller = ChiMusicScope.watch(context);
+    _bootstrapFromController(controller);
     SonoPalette.syncWith(
       controller.themeMode == AppThemeMode.light
           ? Brightness.light
@@ -242,7 +274,7 @@ class _MobilePlayerShellState extends State<MobilePlayerShell> {
             child: _BottomNav(
               page: _page,
               bottomSafe: bottomSafe,
-              onSelect: _setPage,
+              onSelect: (page) => _setPage(page, controller),
             ),
           ),
           Positioned(
@@ -282,7 +314,7 @@ class _MobilePlayerShellState extends State<MobilePlayerShell> {
         return _HomePage(
           controller: controller,
           bottomPad: bottomPad,
-          onOpenLibrary: () => _setPage(_MobilePage.library),
+          onOpenLibrary: () => _setPage(_MobilePage.library, controller),
         );
       case _MobilePage.library:
         return _LibraryPage(
@@ -294,8 +326,7 @@ class _MobilePlayerShellState extends State<MobilePlayerShell> {
           likedFilter: _likedFilter,
           onQueryChanged: (value) => setState(() => _libQuery = value),
           onSortChanged: (value) => setState(() => _sort = value),
-          onLikedFilterChanged: (value) =>
-              setState(() => _likedFilter = value),
+          onLikedFilterChanged: (value) => setState(() => _likedFilter = value),
         );
       case _MobilePage.history:
         return _HistoryPage(
@@ -436,7 +467,11 @@ class _SectionLabel extends StatelessWidget {
 }
 
 class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.icon, required this.title, required this.body});
+  const _EmptyState({
+    required this.icon,
+    required this.title,
+    required this.body,
+  });
 
   final IconData icon;
   final String title;
@@ -644,7 +679,11 @@ class _HomePage extends StatelessWidget {
             body: '前往「音乐库」导入本地音乐文件\n支持 MP3、AAC、FLAC、WAV 等格式',
           )
         else ...[
-          _SectionLabel(text: '最近添加', actionText: '全部 →', onAction: onOpenLibrary),
+          _SectionLabel(
+            text: '最近添加',
+            actionText: '全部 →',
+            onAction: onOpenLibrary,
+          ),
           SizedBox(
             height: 186,
             child: ListView.separated(
@@ -741,7 +780,7 @@ class _HomeCard extends StatelessWidget {
               children: [
                 SonoArtwork(
                   track: track,
-                  size: 116,
+                  size: 108,
                   radius: BorderRadius.circular(10),
                 ),
                 Positioned(
@@ -764,18 +803,26 @@ class _HomeCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 10),
-            Text(
-              track.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: SonoText.title,
-            ),
-            const SizedBox(height: 2),
-            Text(
-              track.artist,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: SonoText.mono.copyWith(color: SonoPalette.textFaint),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    track.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: SonoText.title,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    track.artist,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: SonoText.mono.copyWith(color: SonoPalette.textFaint),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -841,8 +888,9 @@ class _LibraryPage extends StatelessWidget {
         );
       case _MobileSort.duration:
         tracks.sort(
-          (a, b) => (a.duration ?? Duration.zero)
-              .compareTo(b.duration ?? Duration.zero),
+          (a, b) => (a.duration ?? Duration.zero).compareTo(
+            b.duration ?? Duration.zero,
+          ),
         );
     }
     return tracks;
@@ -871,7 +919,11 @@ class _LibraryPage extends StatelessWidget {
           ),
           child: Row(
             children: [
-              Icon(Icons.search_rounded, size: 18, color: SonoPalette.textFaint),
+              Icon(
+                Icons.search_rounded,
+                size: 18,
+                color: SonoPalette.textFaint,
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: TextField(
@@ -940,9 +992,7 @@ class _LibraryPage extends StatelessWidget {
                 ? Icons.favorite_border_rounded
                 : Icons.search_off_rounded,
             title: likedFilter ? '还没有喜欢的歌曲' : '没有找到歌曲',
-            body: likedFilter
-                ? '在播放页点击 ♥ 收藏喜欢的歌曲'
-                : '尝试不同的关键词，或导入更多音乐',
+            body: likedFilter ? '在播放页点击 ♥ 收藏喜欢的歌曲' : '尝试不同的关键词，或导入更多音乐',
           )
         else
           Padding(
@@ -1317,7 +1367,11 @@ class _HistoryPage extends StatelessWidget {
 }
 
 class _StatTile extends StatelessWidget {
-  const _StatTile({required this.value, required this.label, this.small = false});
+  const _StatTile({
+    required this.value,
+    required this.label,
+    this.small = false,
+  });
 
   final String value;
   final String label;
@@ -1936,7 +1990,10 @@ class _NowPlayingSheetState extends State<_NowPlayingSheet>
     }
 
     final liked = controller.isTrackLiked(track.id);
-    final artSize = (MediaQuery.sizeOf(context).width * 0.72).clamp(160.0, 280.0);
+    final artSize = (MediaQuery.sizeOf(context).width * 0.72).clamp(
+      160.0,
+      280.0,
+    );
     final upNext = controller.upNext;
 
     return FractionallySizedBox(
@@ -2061,7 +2118,10 @@ class _NowPlayingSheetState extends State<_NowPlayingSheet>
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        formatDuration(controller.position, placeholder: '0:00'),
+                        formatDuration(
+                          controller.position,
+                          placeholder: '0:00',
+                        ),
                         style: SonoText.mono.copyWith(
                           color: SonoPalette.textFaint,
                         ),
@@ -2179,8 +2239,7 @@ class _SeekBar extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth <= 0 ? 1.0 : constraints.maxWidth;
-        void seek(Offset local) =>
-            onSeek((local.dx / width).clamp(0.0, 1.0));
+        void seek(Offset local) => onSeek((local.dx / width).clamp(0.0, 1.0));
 
         final fillWidth = width * clamped;
         final maxLeft = (width - 14).clamp(0.0, double.infinity);
