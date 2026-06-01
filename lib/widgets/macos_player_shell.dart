@@ -7,6 +7,7 @@ import 'dart:ui' as ui;
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
+import '../app/chimusic_branding.dart';
 import '../models/music_models.dart';
 import '../screens/app_details_sheet.dart';
 import '../screens/collection_detail_page.dart';
@@ -609,7 +610,7 @@ class _DesktopSidebar extends StatelessWidget {
                       ),
                       children: [
                         TextSpan(
-                          text: 'SŌNO ',
+                          text: '$chimusicAppName ',
                           style: TextStyle(color: _DesktopPalette.accent),
                         ),
                         TextSpan(

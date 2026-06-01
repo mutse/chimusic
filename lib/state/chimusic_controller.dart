@@ -6,6 +6,7 @@ import 'dart:ui' show Color;
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart' hide PlaybackEvent;
+import 'package:just_audio_background/just_audio_background.dart';
 import 'package:just_waveform/just_waveform.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
@@ -1038,6 +1039,12 @@ class MusicAppController extends ChangeNotifier {
     if (access == null) {
       _updateTrackAvailability(track.id, TrackAvailability.unavailable);
       return null;
+    }
+
+    if (access.refreshedBookmarkBase64 case final refreshedBookmark?) {
+      _trackSourcesByTrackId[track.id] = source.copyWith(
+        bookmarkBase64: refreshedBookmark,
+      );
     }
 
     if (!await File(access.path).exists()) {
@@ -2232,7 +2239,12 @@ class MusicAppController extends ChangeNotifier {
     try {
       await _refreshQueueFileAccesses(_queue);
       final sources = _queue
-          .map((track) => AudioSource.uri(Uri.file(track.filePath), tag: track))
+          .map(
+            (track) => AudioSource.uri(
+              Uri.file(track.filePath),
+              tag: _buildMediaItem(track),
+            ),
+          )
           .toList(growable: false);
 
       await player.setAudioSources(
@@ -2535,7 +2547,12 @@ class MusicAppController extends ChangeNotifier {
     try {
       await _refreshQueueFileAccesses(_queue);
       final sources = _queue
-          .map((track) => AudioSource.uri(Uri.file(track.filePath), tag: track))
+          .map(
+            (track) => AudioSource.uri(
+              Uri.file(track.filePath),
+              tag: _buildMediaItem(track),
+            ),
+          )
           .toList(growable: false);
 
       final player = _player;
@@ -2692,6 +2709,25 @@ class MusicAppController extends ChangeNotifier {
       notifyListeners();
       _persistSession();
     }
+  }
+
+  MediaItem _buildMediaItem(Track track) {
+    final artworkUri = track.artworkUri;
+    return MediaItem(
+      id: track.id,
+      title: track.title,
+      album: track.album,
+      artist: track.artist,
+      genre: track.genre,
+      duration: track.duration,
+      artUri: artworkUri != null && path.isAbsolute(artworkUri)
+          ? Uri.file(artworkUri)
+          : null,
+      extras: <String, dynamic>{
+        'fileExtension': track.fileExtension,
+        'year': track.year,
+      },
+    );
   }
 
   void _startPlaybackForTrack(Track track) {

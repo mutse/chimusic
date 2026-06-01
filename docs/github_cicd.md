@@ -73,6 +73,8 @@ git push origin v1.0.0
 
 ## Before Store Submission
 
-- replace `com.example.chimusic` with your real Android application id
-- replace `com.example.chimusic` with your real Apple bundle identifiers
+- Android now uses `app.chimusic.player`
+- iOS now uses `app.chimusic.player`
+- macOS now uses `app.chimusic.player.macos`
 - add Apple signing certificates, provisioning profiles, and notarization flow if you want true store-ready Apple binaries
+- complete your App Store Connect / Play Console metadata and privacy disclosures

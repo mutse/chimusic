@@ -8,10 +8,15 @@ import '../models/music_models.dart';
 import 'local_audio_importer.dart';
 
 class ScopedTrackAccess {
-  const ScopedTrackAccess({required this.path, required this.release});
+  const ScopedTrackAccess({
+    required this.path,
+    required this.release,
+    this.refreshedBookmarkBase64,
+  });
 
   final String path;
   final Future<void> Function() release;
+  final String? refreshedBookmarkBase64;
 }
 
 class AppleMediaAccessChannel {
@@ -65,6 +70,7 @@ class AppleMediaAccessChannel {
 
     return ScopedTrackAccess(
       path: resolvedPath,
+      refreshedBookmarkBase64: response?['bookmarkBase64'] as String?,
       release: () async {
         await _channel.invokeMethod<void>(
           'stopAccessingBookmark',

@@ -203,7 +203,7 @@ final class AppleMediaAccessPlugin: NSObject, UIDocumentPickerDelegate {
     #if os(macOS)
       return [.withSecurityScope]
     #else
-      return []
+      return [.minimalBookmark]
     #endif
   }
 

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../app/chimusic_branding.dart';
 import '../data/history_export.dart';
 import '../models/music_models.dart';
 import '../state/chimusic_controller.dart';
@@ -49,7 +50,7 @@ const double _kNavHeight = 64;
 const double _kMiniHeight = 64;
 
 /// The Android/iOS player surface — a faithful Flutter port of
-/// `docs/music-player-mobile.html` (SŌNO Mobile). Routed from [AppShell] for
+/// `docs/music-player-mobile.html`. Routed from [AppShell] for
 /// any non-desktop width.
 class MobilePlayerShell extends StatefulWidget {
   const MobilePlayerShell({super.key});
@@ -1503,7 +1504,7 @@ class _SettingsPage extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 10),
-              Text('SŌNO Player', style: SonoText.section),
+              Text(chimusicDesktopName, style: SonoText.section),
               const SizedBox(height: 4),
               Text(
                 '${controller.importedTrackCount} 首歌曲 · ${controller.playbackHistoryCount} 条记录',
@@ -1563,7 +1564,7 @@ class _SettingsPage extends StatelessWidget {
         _SettingsRow(
           icon: Icons.info_outline_rounded,
           iconColor: SonoPalette.accent,
-          label: 'SŌNO Mobile',
+          label: chimusicMobileName,
           subtitle: 'v1.0 · 本地文件播放器',
         ),
         const SizedBox(height: 16),
