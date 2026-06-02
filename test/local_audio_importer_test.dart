@@ -70,6 +70,7 @@ void main() {
       final payload = await buildImportedTrackFromSelection(
         LocalImportSelection(
           path: file.path,
+          locator: 'content://chimusic/audio/fallback-artist-demo-track',
           platform: 'ios',
           bookmarkBase64: 'bookmark-token',
         ),
@@ -110,6 +111,10 @@ void main() {
       expect(payload.track.artworkUri, isNotNull);
       expect(File(payload.track.artworkUri!).existsSync(), isTrue);
       expect(payload.source.platform, 'ios');
+      expect(
+        payload.source.locator,
+        'content://chimusic/audio/fallback-artist-demo-track',
+      );
       expect(payload.source.bookmarkBase64, 'bookmark-token');
     },
   );
@@ -142,6 +147,7 @@ void main() {
       expect(payload.track.artist, 'Daft Punk');
       expect(payload.track.album, startsWith('chimusic fallback'));
       expect(payload.track.artworkUri, isNull);
+      expect(payload.source.locator, file.path);
     },
   );
 

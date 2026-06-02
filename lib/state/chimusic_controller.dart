@@ -1062,7 +1062,7 @@ class MusicAppController extends ChangeNotifier {
   }
 
   Future<void> _refreshQueueFileAccesses(List<Track> tracks) async {
-    if (kIsWeb || !Platform.isIOS) {
+    if (kIsWeb || !(Platform.isIOS || Platform.isMacOS || Platform.isAndroid)) {
       return;
     }
 
@@ -1600,16 +1600,18 @@ class MusicAppController extends ChangeNotifier {
       }
 
       final audioPaths = await collectAudioFilesFromDirectory(directoryPath);
-      await _importSelections(
-        audioPaths
-            .map(
-              (audioPath) => LocalImportSelection(
-                path: audioPath,
-                platform: Platform.isAndroid ? 'android' : 'macos',
-              ),
-            )
-            .toList(growable: false),
-      );
+      final selections = await _appleMediaAccessChannel
+          .attachPersistentBookmarks(
+            audioPaths
+                .map(
+                  (audioPath) => LocalImportSelection(
+                    path: audioPath,
+                    platform: Platform.isAndroid ? 'android' : 'macos',
+                  ),
+                )
+                .toList(growable: false),
+          );
+      await _importSelections(selections);
     } catch (_) {
       _statusMessage =
           'Unable to scan the selected folder. Try choosing a smaller audio directory.';
@@ -2366,7 +2368,7 @@ class MusicAppController extends ChangeNotifier {
     final pickedFiles = await openFiles(
       acceptedTypeGroups: <XTypeGroup>[localAudioTypeGroup],
     );
-    return pickedFiles
+    final selections = pickedFiles
         .map((file) => file.path)
         .where((path) => path.isNotEmpty)
         .map(
@@ -2376,6 +2378,7 @@ class MusicAppController extends ChangeNotifier {
           ),
         )
         .toList(growable: false);
+    return _appleMediaAccessChannel.attachPersistentBookmarks(selections);
   }
 
   Future<void> _importSelections(List<LocalImportSelection> selections) async {
@@ -2936,6 +2939,68 @@ class MusicAppController extends ChangeNotifier {
     return migratedHistory;
   }
 
+  Future<void> _restoreTrackAccessAndPlayback(
+    MusicSessionSnapshot snapshot,
+  ) async {
+    final restoreFuture = _restorePlaybackSnapshot(snapshot);
+    final didBackfillBookmarks = await _backfillMissingTrackSourceBookmarks();
+    await restoreFuture;
+
+    final shouldRetryRestore =
+        didBackfillBookmarks &&
+        _audioEnabled &&
+        _player != null &&
+        (_statusMessage ==
+                'Unable to restore the last playback queue in this environment.' ||
+            _statusMessage ==
+                'Playback queue restore failed. Your library is still available.');
+    if (shouldRetryRestore) {
+      _statusMessage = null;
+      await _restorePlaybackSnapshot(snapshot);
+    }
+
+    if (didBackfillBookmarks) {
+      await _persistSession();
+    }
+  }
+
+  Future<bool> _backfillMissingTrackSourceBookmarks() async {
+    final sourcesNeedingBookmarks = _trackSourcesByTrackId.entries
+        .where(
+          (entry) =>
+              entry.value.locator.isNotEmpty &&
+              (entry.value.bookmarkBase64 == null ||
+                  entry.value.bookmarkBase64!.isEmpty),
+        )
+        .toList(growable: false);
+    if (sourcesNeedingBookmarks.isEmpty) {
+      return false;
+    }
+
+    final bookmarksByPath = await _appleMediaAccessChannel
+        .createBookmarksByPath(
+          sourcesNeedingBookmarks.map((entry) => entry.value.locator),
+        );
+    if (bookmarksByPath.isEmpty) {
+      return false;
+    }
+
+    var changed = false;
+    for (final entry in sourcesNeedingBookmarks) {
+      final bookmarkBase64 = bookmarksByPath[entry.value.locator];
+      if (bookmarkBase64 == null || bookmarkBase64.isEmpty) {
+        continue;
+      }
+
+      _trackSourcesByTrackId[entry.key] = entry.value.copyWith(
+        bookmarkBase64: bookmarkBase64,
+      );
+      changed = true;
+    }
+
+    return changed;
+  }
+
   Future<void> _restorePlaybackSnapshot(MusicSessionSnapshot snapshot) async {
     final tracksById = {for (final track in _tracks) track.id: track};
     final queue = snapshot.queueTrackIds
@@ -2980,7 +3045,14 @@ class MusicAppController extends ChangeNotifier {
 
     try {
       await _refreshQueueFileAccesses(queue);
-      final sources = queue
+      final restoredQueue = List<Track>.from(_queue);
+      final restoredCurrentTrack = _currentTrack;
+      if (restoredQueue.isEmpty || restoredCurrentTrack == null) {
+        _isPreparingPlayback = false;
+        return;
+      }
+
+      final sources = restoredQueue
           .map((track) => AudioSource.uri(Uri.file(track.filePath), tag: track))
           .toList(growable: false);
 
@@ -2988,8 +3060,16 @@ class MusicAppController extends ChangeNotifier {
 
       await player.setAudioSources(
         sources,
-        initialIndex: _queue.indexWhere((track) => track.id == currentTrack.id),
-        initialPosition: initialPosition,
+        initialIndex: max(
+          0,
+          restoredQueue.indexWhere(
+            (track) => track.id == restoredCurrentTrack.id,
+          ),
+        ),
+        initialPosition: _clampedPositionForTrack(
+          restoredCurrentTrack,
+          _position,
+        ),
       );
       await player.setLoopMode(_isRepeatEnabled ? LoopMode.all : LoopMode.off);
       await player.setShuffleModeEnabled(false);
@@ -3200,7 +3280,7 @@ class MusicAppController extends ChangeNotifier {
       (trackId, _) => !trackIds.contains(trackId),
     );
     _primeLyricsStates();
-    unawaited(_restorePlaybackSnapshot(snapshot));
+    unawaited(_restoreTrackAccessAndPlayback(snapshot));
   }
 
   SyncState _buildDefaultSyncState() {

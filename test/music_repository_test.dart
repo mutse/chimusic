@@ -34,6 +34,7 @@ void main() {
           trackId: track.id,
           platform: 'macos',
           locator: track.filePath,
+          bookmarkBase64: 'bookmark-1',
           relativePath: 'Archive/Voyager.mp3',
         ),
       ],
@@ -102,6 +103,7 @@ void main() {
 
     expect(restored, isNotNull);
     expect(restored!.tracks.single.id, track.id);
+    expect(restored.trackSources.single.bookmarkBase64, 'bookmark-1');
     expect(restored.trackSources.single.relativePath, 'Archive/Voyager.mp3');
     expect(restored.playbackStats.single.playCount, 3);
     expect(restored.playbackEvents.single.id, 'evt-1');
@@ -135,6 +137,7 @@ void main() {
             trackId: track.id,
             platform: 'macos',
             locator: track.filePath,
+            bookmarkBase64: 'bookmark-2',
           ),
         ],
         initialLikedTrackIds: {track.id},
@@ -157,6 +160,10 @@ void main() {
 
       expect(restored.importedTrackCount, 1);
       expect(restored.importedTracks.single.id, track.id);
+      expect(
+        restored.trackSourceForTrack(track.id)?.bookmarkBase64,
+        'bookmark-2',
+      );
       expect(restored.likedTracksCount, 1);
       expect(restored.recentPlayedTracks.single.id, track.id);
     },

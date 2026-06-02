@@ -30,11 +30,13 @@ typedef AudioMetadataLoader =
 class LocalImportSelection {
   const LocalImportSelection({
     required this.path,
+    this.locator,
     this.bookmarkBase64,
     this.platform,
   });
 
   final String path;
+  final String? locator;
   final String? bookmarkBase64;
   final String? platform;
 }
@@ -109,7 +111,7 @@ Future<ImportedTrackPayload?> buildImportedTrackFromSelection(
         source: TrackSourceRecord(
           trackId: fallbackTrack.id,
           platform: selection.platform ?? _defaultPlatformLabel(),
-          locator: selection.path,
+          locator: selection.locator ?? selection.path,
           bookmarkBase64: selection.bookmarkBase64,
         ),
       );
@@ -153,7 +155,7 @@ Future<ImportedTrackPayload?> buildImportedTrackFromSelection(
       source: TrackSourceRecord(
         trackId: track.id,
         platform: selection.platform ?? _defaultPlatformLabel(),
-        locator: selection.path,
+        locator: selection.locator ?? selection.path,
         bookmarkBase64: selection.bookmarkBase64,
       ),
     );
@@ -166,7 +168,7 @@ Future<ImportedTrackPayload?> buildImportedTrackFromSelection(
       source: TrackSourceRecord(
         trackId: fallbackTrack.id,
         platform: selection.platform ?? _defaultPlatformLabel(),
-        locator: selection.path,
+        locator: selection.locator ?? selection.path,
         bookmarkBase64: selection.bookmarkBase64,
       ),
     );

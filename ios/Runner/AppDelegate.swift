@@ -39,6 +39,8 @@ final class AppleMediaAccessPlugin: NSObject, UIDocumentPickerDelegate {
     switch call.method {
     case "pickAudioFiles":
       presentPicker(result: result)
+    case "createBookmarks":
+      createBookmarks(call.arguments, result: result)
     case "startAccessingBookmark":
       startAccessingBookmark(call.arguments, result: result)
     case "stopAccessingBookmark":
@@ -155,28 +157,7 @@ final class AppleMediaAccessPlugin: NSObject, UIDocumentPickerDelegate {
     pendingResult = nil
     controller.dismiss(animated: true)
 
-    let payload = urls.compactMap { url -> [String: Any]? in
-      let didStartAccessing = url.startAccessingSecurityScopedResource()
-      defer {
-        if didStartAccessing {
-          url.stopAccessingSecurityScopedResource()
-        }
-      }
-
-      do {
-        let bookmark = try url.bookmarkData(
-          options: bookmarkCreationOptions(),
-          includingResourceValuesForKeys: nil,
-          relativeTo: nil
-        )
-        return [
-          "path": url.path,
-          "bookmarkBase64": bookmark.base64EncodedString(),
-        ]
-      } catch {
-        return nil
-      }
-    }
+    let payload = urls.compactMap(bookmarkPayload(for:))
     result?(payload)
   }
 
@@ -197,6 +178,44 @@ final class AppleMediaAccessPlugin: NSObject, UIDocumentPickerDelegate {
       current = presented
     }
     return current
+  }
+
+  private func createBookmarks(_ arguments: Any?, result: @escaping FlutterResult) {
+    guard
+      let arguments = arguments as? [String: Any],
+      let paths = arguments["paths"] as? [String]
+    else {
+      result([])
+      return
+    }
+
+    let payload = paths.compactMap { path in
+      bookmarkPayload(for: URL(fileURLWithPath: path))
+    }
+    result(payload)
+  }
+
+  private func bookmarkPayload(for url: URL) -> [String: Any]? {
+    let didStartAccessing = url.startAccessingSecurityScopedResource()
+    defer {
+      if didStartAccessing {
+        url.stopAccessingSecurityScopedResource()
+      }
+    }
+
+    do {
+      let bookmark = try url.bookmarkData(
+        options: bookmarkCreationOptions(),
+        includingResourceValuesForKeys: nil,
+        relativeTo: nil
+      )
+      return [
+        "path": url.path,
+        "bookmarkBase64": bookmark.base64EncodedString(),
+      ]
+    } catch {
+      return nil
+    }
   }
 
   private func bookmarkCreationOptions() -> URL.BookmarkCreationOptions {
