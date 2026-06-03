@@ -183,6 +183,7 @@ class _CollectionHero extends StatelessWidget {
                 ArtworkCover(
                   title: collection.title,
                   palette: collection.palette,
+                  artworkUri: collection.artworkUri,
                   size: 200,
                   showTitle: true,
                   icon: collection.kind == MusicCollectionKind.folder
@@ -198,6 +199,7 @@ class _CollectionHero extends StatelessWidget {
               child: ArtworkCover(
                 title: collection.title,
                 palette: collection.palette,
+                artworkUri: collection.artworkUri,
                 size: 220,
                 showTitle: true,
                 icon: collection.kind == MusicCollectionKind.folder

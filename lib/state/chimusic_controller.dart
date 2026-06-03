@@ -1,12 +1,19 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 import 'dart:ui' show Color;
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
-import 'package:just_audio/just_audio.dart';
+import 'package:just_audio/just_audio.dart' hide PlaybackEvent;
+import 'package:just_audio_background/just_audio_background.dart';
+import 'package:just_waveform/just_waveform.dart';
+import 'package:path/path.dart' as path;
+import 'package:path_provider/path_provider.dart';
 
+import '../data/apple_media_access_channel.dart';
 import '../data/local_audio_importer.dart';
+import '../data/music_repository.dart';
 import '../data/music_session_store.dart';
 import '../models/music_models.dart';
 import '../services/auth_service.dart';
@@ -19,15 +26,19 @@ class MusicAppController extends ChangeNotifier {
   MusicAppController({
     AudioPlayer? player,
     bool enableAudio = true,
+    MusicRepository? repository,
     MusicSessionStore? sessionStore,
     AuthService? authService,
     MetadataEnrichmentService? metadataEnrichmentService,
     RecommendationService? recommendationService,
     CloudSyncService? cloudSyncService,
     SubscriptionService? subscriptionService,
+    AppleMediaAccessChannel? appleMediaAccessChannel,
     List<Track> initialTracks = const <Track>[],
+    List<TrackSourceRecord> initialTrackSources = const <TrackSourceRecord>[],
     List<PlaybackHistoryEntry> initialPlaybackHistory =
         const <PlaybackHistoryEntry>[],
+    List<PlaybackEvent> initialPlaybackEvents = const <PlaybackEvent>[],
     Set<String> initialLikedTrackIds = const <String>{},
     Set<String> initialSavedCollectionIds = const <String>{},
     List<String> initialRecentTrackIds = const <String>[],
@@ -39,8 +50,15 @@ class MusicAppController extends ChangeNotifier {
     SearchMode initialSearchMode = SearchMode.standard,
     UserProfile? initialUserProfile,
     int initialAiSearchTrialsRemaining = 2,
+    AppThemeMode initialThemeMode = AppThemeMode.dark,
+    bool initialShuffleEnabled = false,
+    bool initialRepeatEnabled = false,
   }) : _audioEnabled = enableAudio,
-       _sessionStore = sessionStore,
+       _repository =
+           repository ??
+           (sessionStore == null
+               ? null
+               : LegacySessionStoreRepository(sessionStore)),
        _authService = authService ?? MockAuthService(),
        _metadataEnrichmentService =
            metadataEnrichmentService ?? MockMetadataEnrichmentService(),
@@ -48,11 +66,17 @@ class MusicAppController extends ChangeNotifier {
            recommendationService ?? MockRecommendationService(),
        _cloudSyncService = cloudSyncService ?? MockCloudSyncService(),
        _subscriptionService = subscriptionService ?? MockSubscriptionService(),
+       _appleMediaAccessChannel =
+           appleMediaAccessChannel ?? AppleMediaAccessChannel(),
        _player = enableAudio ? (player ?? AudioPlayer()) : null {
     _tracks = List<Track>.from(initialTracks);
+    for (final source in initialTrackSources) {
+      _trackSourcesByTrackId[source.trackId] = source;
+    }
     for (final entry in initialPlaybackHistory) {
       _playbackHistoryByTrackId[entry.trackId] = entry;
     }
+    _playbackEvents = List<PlaybackEvent>.from(initialPlaybackEvents);
     _likedTrackIds.addAll(initialLikedTrackIds);
     _savedCollectionIds.addAll(initialSavedCollectionIds);
     _recentTrackIds.addAll(initialRecentTrackIds);
@@ -64,21 +88,33 @@ class MusicAppController extends ChangeNotifier {
     _searchMode = initialSearchMode;
     _userProfile = initialUserProfile;
     _aiSearchTrialsRemaining = initialAiSearchTrialsRemaining;
+    _themeMode = initialThemeMode;
+    _isShuffleEnabled = initialShuffleEnabled;
+    _isRepeatEnabled = initialRepeatEnabled;
     _syncState = _buildDefaultSyncState();
     _primeLyricsStates();
     _bindAudioStreams();
+    if (_player case final player?) {
+      unawaited(player.setVolume(_volume));
+      unawaited(
+        player.setLoopMode(_isRepeatEnabled ? LoopMode.all : LoopMode.off),
+      );
+    }
   }
 
   final bool _audioEnabled;
-  final MusicSessionStore? _sessionStore;
+  final MusicRepository? _repository;
   final AuthService _authService;
   final MetadataEnrichmentService _metadataEnrichmentService;
   final RecommendationService _recommendationService;
   final CloudSyncService _cloudSyncService;
   final SubscriptionService _subscriptionService;
+  final AppleMediaAccessChannel _appleMediaAccessChannel;
   final AudioPlayer? _player;
   final Set<String> _likedTrackIds = <String>{};
   final Set<String> _savedCollectionIds = <String>{};
+  final Map<String, TrackSourceRecord> _trackSourcesByTrackId =
+      <String, TrackSourceRecord>{};
   final Map<String, PlaybackHistoryEntry> _playbackHistoryByTrackId =
       <String, PlaybackHistoryEntry>{};
   final List<String> _recentTrackIds = <String>[];
@@ -86,17 +122,28 @@ class MusicAppController extends ChangeNotifier {
   final List<StreamSubscription<dynamic>> _subscriptions =
       <StreamSubscription<dynamic>>[];
   final Map<String, LyricsState> _lyricsByTrackId = <String, LyricsState>{};
+  final Map<String, Waveform> _waveformsByTrackId = <String, Waveform>{};
+  final Map<String, ScopedTrackAccess> _activeTrackAccesses =
+      <String, ScopedTrackAccess>{};
+  final Map<String, Duration> _activePlaybackEventStartPositions =
+      <String, Duration>{};
 
   Future<void> _persistOperation = Future<void>.value();
   bool _hasRestoredSession = false;
   bool _isDisposed = false;
   int? _lastPersistedPositionBucket;
+  String? _activePlaybackEventId;
+  Future<void>? _cacheDirectoryPreparation;
+  String? _artworkCacheDirectory;
+  String? _waveformCacheDirectory;
 
   List<Track> _tracks = <Track>[];
   List<Track> _queue = <Track>[];
+  List<PlaybackEvent> _playbackEvents = <PlaybackEvent>[];
   Track? _currentTrack;
   MusicCollection? _currentCollection;
   Duration _position = Duration.zero;
+  double _volume = 0.8;
   MusicTab _selectedTab = MusicTab.home;
   LibraryFilter _libraryFilter = LibraryFilter.all;
   LibrarySort _librarySort = LibrarySort.recent;
@@ -117,6 +164,9 @@ class MusicAppController extends ChangeNotifier {
   List<Track> _aiSearchResults = <Track>[];
   List<SmartPlaylist> _smartPlaylists = <SmartPlaylist>[];
   List<RecommendationCard> _recommendationCards = <RecommendationCard>[];
+  AppThemeMode _themeMode = AppThemeMode.dark;
+  bool _isShuffleEnabled = false;
+  bool _isRepeatEnabled = false;
 
   MusicTab get selectedTab => _selectedTab;
   LibraryFilter get libraryFilter => _libraryFilter;
@@ -142,7 +192,20 @@ class MusicAppController extends ChangeNotifier {
   Track? get currentTrack => _currentTrack;
   MusicCollection? get currentCollection => _currentCollection;
   Duration get position => _position;
+  double get volume => _volume;
+  AppThemeMode get themeMode => _themeMode;
+  bool get isShuffleEnabled => _isShuffleEnabled;
+  bool get isRepeatEnabled => _isRepeatEnabled;
   List<Track> get queue => List<Track>.unmodifiable(_queue);
+  bool get canSkipNext {
+    final currentTrack = _currentTrack;
+    if (_queue.isEmpty || currentTrack == null) {
+      return false;
+    }
+
+    return _queue.length > 1 || _isRepeatEnabled;
+  }
+
   String? get statusMessage => _statusMessage;
   String? get aiSearchSummary => _aiSearchSummary;
   UserProfile? get userProfile => _userProfile;
@@ -257,6 +320,69 @@ class MusicAppController extends ChangeNotifier {
 
   PlaybackHistoryEntry? playbackHistoryEntryForTrack(String trackId) =>
       _playbackHistoryByTrackId[trackId];
+
+  TrackSourceRecord? trackSourceForTrack(String trackId) =>
+      _trackSourcesByTrackId[trackId];
+
+  List<PlaybackEvent> get playbackEvents {
+    final events = List<PlaybackEvent>.from(_playbackEvents);
+    events.sort((a, b) => b.startedAt.compareTo(a.startedAt));
+    return events;
+  }
+
+  List<PlaybackEvent> playbackEventsForTrack(String trackId) {
+    final events = playbackEvents.where((event) => event.trackId == trackId);
+    return events.toList(growable: false);
+  }
+
+  List<Track> get resumeTracks {
+    final tracksById = {for (final track in _tracks) track.id: track};
+    final entries =
+        _playbackHistoryByTrackId.values
+            .where((entry) => entry.lastPosition > Duration.zero)
+            .toList(growable: false)
+          ..sort((a, b) => b.lastPlayedAt.compareTo(a.lastPlayedAt));
+
+    return entries
+        .map((entry) => tracksById[entry.trackId])
+        .whereType<Track>()
+        .toList(growable: false);
+  }
+
+  List<Track> get mostPlayedTracks {
+    final tracksById = {for (final track in _tracks) track.id: track};
+    final entries = _playbackHistoryByTrackId.values.toList(growable: false)
+      ..sort((a, b) {
+        final playCountCompare = b.playCount.compareTo(a.playCount);
+        if (playCountCompare != 0) {
+          return playCountCompare;
+        }
+        return b.lastPlayedAt.compareTo(a.lastPlayedAt);
+      });
+
+    return entries
+        .map((entry) => tracksById[entry.trackId])
+        .whereType<Track>()
+        .toList(growable: false);
+  }
+
+  List<({DateTime day, List<PlaybackEvent> events})> get recentSessionGroups {
+    final grouped = <DateTime, List<PlaybackEvent>>{};
+    for (final event in playbackEvents) {
+      final key = DateTime(
+        event.startedAt.year,
+        event.startedAt.month,
+        event.startedAt.day,
+      );
+      grouped.putIfAbsent(key, () => <PlaybackEvent>[]).add(event);
+    }
+
+    final days = grouped.keys.toList(growable: false)
+      ..sort((a, b) => b.compareTo(a));
+    return days
+        .map((day) => (day: day, events: grouped[day]!))
+        .toList(growable: false);
+  }
 
   double playbackHistoryProgressForTrack(Track track) {
     final entry = playbackHistoryEntryForTrack(track.id);
@@ -457,6 +583,10 @@ class MusicAppController extends ChangeNotifier {
   }
 
   List<Track> get continueListeningTracks {
+    if (resumeTracks.isNotEmpty) {
+      return resumeTracks.take(6).toList(growable: false);
+    }
+
     if (recentPlayedTracks.isNotEmpty) {
       return recentPlayedTracks.take(6).toList(growable: false);
     }
@@ -730,6 +860,37 @@ class MusicAppController extends ChangeNotifier {
 
   bool isTrackLiked(String trackId) => _likedTrackIds.contains(trackId);
 
+  List<Track> _orderedQueueForCurrentContext({
+    List<Track>? baseQueue,
+    Track? currentTrack,
+  }) {
+    final current = currentTrack ?? _currentTrack;
+    final tracks =
+        baseQueue ??
+        (() {
+          final collection = _currentCollection;
+          if (collection == null) {
+            return _queue;
+          }
+
+          final availableTrackIds = _queue.map((track) => track.id).toSet();
+          return collection.tracks
+              .where((track) => availableTrackIds.contains(track.id))
+              .toList(growable: false);
+        })();
+
+    final ordered = List<Track>.from(tracks);
+    if (!_isShuffleEnabled || current == null || ordered.length <= 1) {
+      return ordered;
+    }
+
+    final remaining = ordered
+        .where((track) => track.id != current.id)
+        .toList(growable: false);
+    remaining.shuffle(Random(DateTime.now().microsecondsSinceEpoch));
+    return <Track>[current, ...remaining];
+  }
+
   LyricsState lyricsStateForTrack(Track track) {
     return _lyricsByTrackId[track.id] ??
         LyricsState(
@@ -790,17 +951,222 @@ class MusicAppController extends ChangeNotifier {
     return 'Matched from ${pieces.join(' • ')} signals in your local library.';
   }
 
+  Waveform? waveformForTrack(Track track) => _waveformsByTrackId[track.id];
+
+  Future<void> _ensureCacheDirectoriesReady() async {
+    final inFlight = _cacheDirectoryPreparation;
+    if (inFlight != null) {
+      return inFlight;
+    }
+
+    _cacheDirectoryPreparation = () async {
+      try {
+        final supportDirectory = await getApplicationSupportDirectory();
+        final temporaryDirectory = await getTemporaryDirectory();
+        _artworkCacheDirectory = path.join(
+          supportDirectory.path,
+          'chimusic_artwork',
+        );
+        _waveformCacheDirectory = path.join(
+          temporaryDirectory.path,
+          'chimusic_waveforms',
+        );
+        await Directory(_artworkCacheDirectory!).create(recursive: true);
+        await Directory(_waveformCacheDirectory!).create(recursive: true);
+      } catch (_) {
+        _artworkCacheDirectory = null;
+        _waveformCacheDirectory = null;
+      }
+    }();
+    return _cacheDirectoryPreparation!;
+  }
+
+  Future<void> _prepareWaveformForTrack(Track track) async {
+    await _ensureCacheDirectoriesReady();
+    final waveformCacheDirectory = _waveformCacheDirectory;
+    if (waveformCacheDirectory == null) {
+      return;
+    }
+
+    final waveformPath =
+        track.waveformUri ??
+        path.join(waveformCacheDirectory, '${track.id.hashCode.abs()}.wave');
+    final waveformFile = File(waveformPath);
+
+    try {
+      if (await waveformFile.exists()) {
+        _waveformsByTrackId[track.id] = await JustWaveform.parse(waveformFile);
+        _replaceTrackWaveformUri(track.id, waveformPath);
+        return;
+      }
+    } catch (_) {
+      // Fall through and attempt a fresh extraction.
+    }
+
+    final access = await _beginTrackAccess(track);
+    if (access == null) {
+      return;
+    }
+
+    try {
+      await for (final progress in JustWaveform.extract(
+        audioInFile: File(access.path),
+        waveOutFile: waveformFile,
+        zoom: const WaveformZoom.pixelsPerSecond(64),
+      )) {
+        if (progress.waveform case final waveform?) {
+          _waveformsByTrackId[track.id] = waveform;
+          _replaceTrackWaveformUri(track.id, waveformPath);
+          _notifyIfAlive();
+        }
+      }
+    } catch (_) {
+      // Waveform extraction should not block playback or library browsing.
+    } finally {
+      await access.release();
+    }
+  }
+
+  Future<ScopedTrackAccess?> _beginTrackAccess(Track track) async {
+    final source =
+        _trackSourcesByTrackId[track.id] ??
+        TrackSourceRecord(
+          trackId: track.id,
+          platform: 'local',
+          locator: track.filePath,
+        );
+    final access = await _appleMediaAccessChannel.beginAccess(source);
+    if (access == null) {
+      _updateTrackAvailability(track.id, TrackAvailability.unavailable);
+      return null;
+    }
+
+    if (access.refreshedBookmarkBase64 case final refreshedBookmark?) {
+      _trackSourcesByTrackId[track.id] = source.copyWith(
+        bookmarkBase64: refreshedBookmark,
+      );
+    }
+
+    if (!await File(access.path).exists()) {
+      await access.release();
+      _updateTrackAvailability(track.id, TrackAvailability.unavailable);
+      return null;
+    }
+
+    _updateTrackAvailability(
+      track.id,
+      TrackAvailability.available,
+      filePath: access.path,
+    );
+    return access;
+  }
+
+  Future<void> _refreshQueueFileAccesses(List<Track> tracks) async {
+    if (kIsWeb || !(Platform.isIOS || Platform.isMacOS || Platform.isAndroid)) {
+      return;
+    }
+
+    await _releaseQueueFileAccesses();
+    for (final track in tracks) {
+      final access = await _beginTrackAccess(track);
+      if (access != null) {
+        _activeTrackAccesses[track.id] = access;
+      }
+    }
+  }
+
+  Future<void> _releaseQueueFileAccesses() async {
+    final accesses = _activeTrackAccesses.values.toList(growable: false);
+    _activeTrackAccesses.clear();
+    for (final access in accesses) {
+      await access.release();
+    }
+  }
+
+  void _replaceTrackWaveformUri(String trackId, String waveformPath) {
+    var changed = false;
+    _tracks = _tracks
+        .map((track) {
+          if (track.id != trackId || track.waveformUri == waveformPath) {
+            return track;
+          }
+          changed = true;
+          return track.copyWith(waveformUri: waveformPath);
+        })
+        .toList(growable: false);
+    _queue = _queue
+        .map(
+          (track) => track.id == trackId
+              ? track.copyWith(waveformUri: waveformPath)
+              : track,
+        )
+        .toList(growable: false);
+    if (_currentTrack?.id == trackId) {
+      _currentTrack = _currentTrack?.copyWith(waveformUri: waveformPath);
+      changed = true;
+    }
+    if (changed) {
+      _persistSession();
+    }
+  }
+
+  void _updateTrackAvailability(
+    String trackId,
+    TrackAvailability availability, {
+    String? filePath,
+  }) {
+    var changed = false;
+    final now = DateTime.now();
+    _tracks = _tracks
+        .map((track) {
+          if (track.id != trackId) {
+            return track;
+          }
+
+          final nextTrack = track.copyWith(
+            availability: availability,
+            filePath: filePath ?? track.filePath,
+            lastValidatedAt: now,
+          );
+          changed = changed || nextTrack != track;
+          return nextTrack;
+        })
+        .toList(growable: false);
+    _queue = _queue
+        .map(
+          (track) => track.id == trackId
+              ? track.copyWith(
+                  availability: availability,
+                  filePath: filePath ?? track.filePath,
+                  lastValidatedAt: now,
+                )
+              : track,
+        )
+        .toList(growable: false);
+    if (_currentTrack?.id == trackId) {
+      _currentTrack = _currentTrack?.copyWith(
+        availability: availability,
+        filePath: filePath ?? _currentTrack!.filePath,
+        lastValidatedAt: now,
+      );
+      changed = true;
+    }
+    if (changed) {
+      _persistSession();
+    }
+  }
+
   Future<void> restoreSession() async {
-    final sessionStore = _sessionStore;
-    if (_hasRestoredSession || sessionStore == null) {
+    final repository = _repository;
+    if (_hasRestoredSession || repository == null) {
       return;
     }
 
     _hasRestoredSession = true;
 
     try {
-      final snapshot = await sessionStore.load();
-      _applySessionSnapshot(snapshot);
+      final snapshot = await repository.load();
+      _applyRepositorySnapshot(snapshot);
 
       final restoredUser =
           snapshot.userProfile ?? await _authService.restoreUser();
@@ -905,6 +1271,9 @@ class MusicAppController extends ChangeNotifier {
     }
 
     _playbackHistoryByTrackId.clear();
+    _playbackEvents = <PlaybackEvent>[];
+    _activePlaybackEventStartPositions.clear();
+    _activePlaybackEventId = null;
     _recentTrackIds.clear();
     _statusMessage = 'Cleared saved playback history from ChiMusic.';
     notifyListeners();
@@ -919,6 +1288,48 @@ class MusicAppController extends ChangeNotifier {
 
     _statusMessage = null;
     notifyListeners();
+  }
+
+  void setStatusMessage(String message) {
+    if (_statusMessage == message) {
+      return;
+    }
+
+    _statusMessage = message;
+    notifyListeners();
+  }
+
+  void toggleThemeMode() {
+    setThemeMode(
+      _themeMode == AppThemeMode.dark ? AppThemeMode.light : AppThemeMode.dark,
+    );
+  }
+
+  void setThemeMode(AppThemeMode mode) {
+    if (_themeMode == mode) {
+      return;
+    }
+
+    _themeMode = mode;
+    notifyListeners();
+    _persistSession();
+  }
+
+  Future<void> toggleShuffle() async {
+    _isShuffleEnabled = !_isShuffleEnabled;
+    await _rebuildQueueForPlaybackOrder();
+  }
+
+  Future<void> toggleRepeat() async {
+    _isRepeatEnabled = !_isRepeatEnabled;
+
+    final player = _player;
+    if (_audioEnabled && player != null) {
+      await player.setLoopMode(_isRepeatEnabled ? LoopMode.all : LoopMode.off);
+    }
+
+    notifyListeners();
+    _persistSession();
   }
 
   void submitSearch([String? value]) {
@@ -1162,15 +1573,8 @@ class MusicAppController extends ChangeNotifier {
       _statusMessage = null;
       notifyListeners();
 
-      final pickedFiles = await openFiles(
-        acceptedTypeGroups: <XTypeGroup>[localAudioTypeGroup],
-      );
-      final filePaths = pickedFiles
-          .map((file) => file.path)
-          .where((path) => path.isNotEmpty)
-          .toList(growable: false);
-
-      await _importPaths(filePaths);
+      final selections = await _pickImportSelections();
+      await _importSelections(selections);
     } catch (_) {
       _statusMessage = 'Unable to import files from the system picker.';
       notifyListeners();
@@ -1196,7 +1600,18 @@ class MusicAppController extends ChangeNotifier {
       }
 
       final audioPaths = await collectAudioFilesFromDirectory(directoryPath);
-      await _importPaths(audioPaths);
+      final selections = await _appleMediaAccessChannel
+          .attachPersistentBookmarks(
+            audioPaths
+                .map(
+                  (audioPath) => LocalImportSelection(
+                    path: audioPath,
+                    platform: Platform.isAndroid ? 'android' : 'macos',
+                  ),
+                )
+                .toList(growable: false),
+          );
+      await _importSelections(selections);
     } catch (_) {
       _statusMessage =
           'Unable to scan the selected folder. Try choosing a smaller audio directory.';
@@ -1224,6 +1639,14 @@ class MusicAppController extends ChangeNotifier {
 
     if (!_audioEnabled || _player == null) {
       _isPlaying = !_isPlaying;
+      if (_isPlaying) {
+        _startPlaybackForTrack(_currentTrack!);
+      } else {
+        _closeActivePlaybackEvent(
+          reason: PlaybackEndReason.paused,
+          finalPosition: _position,
+        );
+      }
       notifyListeners();
       _persistSession();
       return;
@@ -1284,6 +1707,22 @@ class MusicAppController extends ChangeNotifier {
     );
   }
 
+  Future<void> resumeTrack(Track track, {MusicCollection? collection}) async {
+    final ownerCollection =
+        collection ?? collectionForTrack(track) ?? allTracksCollection;
+    final queueTracks = ownerCollection.tracks;
+    final initialIndex = queueTracks.indexWhere((item) => item.id == track.id);
+
+    await _loadQueue(
+      queueTracks,
+      initialIndex: initialIndex < 0 ? 0 : initialIndex,
+      collection: ownerCollection,
+      autoplay: true,
+      startPosition:
+          playbackHistoryEntryForTrack(track.id)?.lastPosition ?? Duration.zero,
+    );
+  }
+
   Future<void> playFavoriteTracks() async {
     final favorites = favoriteTracks;
     if (favorites.isEmpty) {
@@ -1295,6 +1734,57 @@ class MusicAppController extends ChangeNotifier {
       initialIndex: 0,
       collection: _buildLikedSongsCollection(favorites),
       autoplay: true,
+    );
+  }
+
+  Future<void> relinkTrack(Track track) async {
+    final selections = await _pickImportSelections();
+    if (selections.isEmpty) {
+      return;
+    }
+
+    await _ensureCacheDirectoriesReady();
+    final artworkCacheDirectory = _artworkCacheDirectory;
+    if (artworkCacheDirectory == null) {
+      _statusMessage =
+          'ChiMusic could not prepare a cache for the re-linked file.';
+      notifyListeners();
+      return;
+    }
+
+    final payload = await buildImportedTrackFromSelection(
+      selections.first,
+      artworkCacheDirectory: artworkCacheDirectory,
+      importedAt: track.importedAt,
+    );
+    if (payload == null) {
+      return;
+    }
+
+    final relinkedTrack = payload.track.copyWith(
+      id: track.id,
+      importedAt: track.importedAt,
+      availability: TrackAvailability.available,
+    );
+    final replacementById = <String, Track>{track.id: relinkedTrack};
+    _replaceLibraryTracks(
+      _tracks
+          .map((item) => replacementById[item.id] ?? item)
+          .toList(growable: false),
+    );
+    _trackSourcesByTrackId[track.id] = payload.source.copyWith(
+      trackId: track.id,
+    );
+    _statusMessage = 'Re-linked ${relinkedTrack.title} to a new local file.';
+    notifyListeners();
+    _persistSession();
+  }
+
+  Future<void> removeTrackFromLibrary(String trackId) async {
+    await _removeTracksFromLibrary(
+      <String>{trackId},
+      successMessage:
+          'Removed 1 unavailable track from ChiMusic. Original files were not deleted.',
     );
   }
 
@@ -1343,6 +1833,7 @@ class MusicAppController extends ChangeNotifier {
 
     await _stopPlayback();
     _tracks = <Track>[];
+    _trackSourcesByTrackId.clear();
     _queue = <Track>[];
     _currentTrack = null;
     _currentCollection = null;
@@ -1351,15 +1842,19 @@ class MusicAppController extends ChangeNotifier {
     _likedTrackIds.clear();
     _savedCollectionIds.clear();
     _playbackHistoryByTrackId.clear();
+    _playbackEvents = <PlaybackEvent>[];
+    _activePlaybackEventStartPositions.clear();
     _recentTrackIds.clear();
     _recentSearches.clear();
     _aiSearchResults = <Track>[];
     _smartPlaylists = <SmartPlaylist>[];
     _recommendationCards = <RecommendationCard>[];
     _lyricsByTrackId.clear();
+    _waveformsByTrackId.clear();
     _isPlaying = false;
     _isPreparingPlayback = false;
     _lastPersistedPositionBucket = null;
+    _activePlaybackEventId = null;
     _statusMessage =
         'Cleared imported items from ChiMusic. Original audio files were not deleted.';
     _syncState = _buildDefaultSyncState();
@@ -1382,6 +1877,7 @@ class MusicAppController extends ChangeNotifier {
     if (!_audioEnabled || _player == null) {
       _position = nextPosition;
       _syncCurrentTrackHistoryPosition(nextPosition);
+      _updateActivePlaybackEventProgress(nextPosition);
       notifyListeners();
       _persistSession();
       return;
@@ -1391,9 +1887,27 @@ class MusicAppController extends ChangeNotifier {
 
     _position = nextPosition;
     _syncCurrentTrackHistoryPosition(nextPosition);
+    _updateActivePlaybackEventProgress(nextPosition);
     notifyListeners();
     await player.seek(nextPosition);
     _persistSession();
+  }
+
+  Future<void> setVolume(double value) async {
+    final clamped = value.clamp(0.0, 1.0).toDouble();
+    if ((_volume - clamped).abs() < 0.001) {
+      return;
+    }
+
+    _volume = clamped;
+    notifyListeners();
+
+    final player = _player;
+    if (!_audioEnabled || player == null) {
+      return;
+    }
+
+    await player.setVolume(clamped);
   }
 
   Future<void> skipNext() async {
@@ -1405,16 +1919,31 @@ class MusicAppController extends ChangeNotifier {
     final currentIndex = _queue.indexWhere(
       (track) => track.id == currentTrack.id,
     );
-    final nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % _queue.length;
+    final nextIndex = currentIndex < 0
+        ? 0
+        : currentIndex + 1 < _queue.length
+        ? currentIndex + 1
+        : (_isRepeatEnabled ? 0 : currentIndex);
+
+    if (!_isRepeatEnabled && nextIndex == currentIndex) {
+      return;
+    }
 
     if (!_audioEnabled || _player == null) {
       final nextTrack = _queue[nextIndex];
+      if (_activePlaybackEventId != null) {
+        _closeActivePlaybackEvent(
+          reason: PlaybackEndReason.skipped,
+          finalPosition: _position,
+        );
+      }
       _currentTrack = nextTrack;
       _position = Duration.zero;
       _isPlaying = true;
       _lastPersistedPositionBucket = 0;
-      _markTrackPlayed(nextTrack);
       unawaited(loadLyricsForTrack(nextTrack));
+      unawaited(_prepareWaveformForTrack(nextTrack));
+      _startPlaybackForTrack(nextTrack);
       notifyListeners();
       return;
     }
@@ -1452,17 +1981,24 @@ class MusicAppController extends ChangeNotifier {
       (track) => track.id == currentTrack.id,
     );
     final previousIndex = currentIndex <= 0
-        ? _queue.length - 1
+        ? (_isRepeatEnabled ? _queue.length - 1 : 0)
         : currentIndex - 1;
 
     if (!_audioEnabled || _player == null) {
       final previousTrack = _queue[previousIndex];
+      if (_activePlaybackEventId != null) {
+        _closeActivePlaybackEvent(
+          reason: PlaybackEndReason.skipped,
+          finalPosition: _position,
+        );
+      }
       _currentTrack = previousTrack;
       _position = Duration.zero;
       _isPlaying = true;
       _lastPersistedPositionBucket = 0;
-      _markTrackPlayed(previousTrack);
       unawaited(loadLyricsForTrack(previousTrack));
+      unawaited(_prepareWaveformForTrack(previousTrack));
+      _startPlaybackForTrack(previousTrack);
       notifyListeners();
       return;
     }
@@ -1669,6 +2205,75 @@ class MusicAppController extends ChangeNotifier {
 
   String get _normalizedQuery => _searchQuery.trim().toLowerCase();
 
+  Future<void> _rebuildQueueForPlaybackOrder() async {
+    final currentTrack = _currentTrack;
+    if (currentTrack == null || _queue.isEmpty) {
+      notifyListeners();
+      _persistSession();
+      return;
+    }
+
+    final nextQueue = _orderedQueueForCurrentContext(
+      currentTrack: currentTrack,
+    );
+    _queue = nextQueue;
+    final currentIndex = _queue.indexWhere(
+      (track) => track.id == currentTrack.id,
+    );
+    if (currentIndex < 0) {
+      notifyListeners();
+      _persistSession();
+      return;
+    }
+
+    if (!_audioEnabled || _player == null) {
+      notifyListeners();
+      _persistSession();
+      return;
+    }
+
+    final player = _player;
+    final position = _position;
+    final autoplay = _isPlaying;
+    _isPreparingPlayback = true;
+    notifyListeners();
+
+    try {
+      await _refreshQueueFileAccesses(_queue);
+      final sources = _queue
+          .map(
+            (track) => AudioSource.uri(
+              Uri.file(track.filePath),
+              tag: _buildMediaItem(track),
+            ),
+          )
+          .toList(growable: false);
+
+      await player.setAudioSources(
+        sources,
+        initialIndex: currentIndex,
+        initialPosition: position,
+      );
+      await player.setLoopMode(_isRepeatEnabled ? LoopMode.all : LoopMode.off);
+
+      if (autoplay) {
+        await player.play();
+      } else {
+        await player.pause();
+      }
+    } on PlayerException {
+      _statusMessage =
+          'Unable to rebuild the playback queue for the new play mode.';
+    } catch (_) {
+      _statusMessage =
+          'Playback queue update failed. Your current library is still intact.';
+    } finally {
+      _isPreparingPlayback = false;
+      notifyListeners();
+      _persistSession();
+    }
+  }
+
   Future<void> _removeTracksFromLibrary(
     Set<String> removedTrackIds, {
     required String successMessage,
@@ -1695,7 +2300,16 @@ class MusicAppController extends ChangeNotifier {
     _playbackHistoryByTrackId.removeWhere(
       (trackId, _) => removedTrackIds.contains(trackId),
     );
+    _trackSourcesByTrackId.removeWhere(
+      (trackId, _) => removedTrackIds.contains(trackId),
+    );
+    _playbackEvents = _playbackEvents
+        .where((event) => !removedTrackIds.contains(event.trackId))
+        .toList(growable: false);
     _lyricsByTrackId.removeWhere(
+      (trackId, _) => removedTrackIds.contains(trackId),
+    );
+    _waveformsByTrackId.removeWhere(
       (trackId, _) => removedTrackIds.contains(trackId),
     );
 
@@ -1707,6 +2321,7 @@ class MusicAppController extends ChangeNotifier {
       _isPlaying = false;
       _isPreparingPlayback = false;
       _lastPersistedPositionBucket = null;
+      _activePlaybackEventId = null;
     } else if (_currentTrack != null) {
       final currentTrack = _currentTrack!;
       _currentCollection =
@@ -1725,30 +2340,108 @@ class MusicAppController extends ChangeNotifier {
 
   Future<void> _stopPlayback() async {
     if (!_audioEnabled || _player == null) {
+      if (_activePlaybackEventId != null) {
+        _closeActivePlaybackEvent(
+          reason: PlaybackEndReason.stopped,
+          finalPosition: _position,
+        );
+      }
+      await _releaseQueueFileAccesses();
       return;
     }
 
+    if (_activePlaybackEventId != null) {
+      _closeActivePlaybackEvent(
+        reason: PlaybackEndReason.stopped,
+        finalPosition: _position,
+      );
+    }
     await _player.stop();
+    await _releaseQueueFileAccesses();
   }
 
-  Future<void> _importPaths(List<String> filePaths) async {
-    if (filePaths.isEmpty) {
+  Future<List<LocalImportSelection>> _pickImportSelections() async {
+    if (_appleMediaAccessChannel.supportsNativePicker) {
+      return _appleMediaAccessChannel.pickAudioFiles();
+    }
+
+    final pickedFiles = await openFiles(
+      acceptedTypeGroups: <XTypeGroup>[localAudioTypeGroup],
+    );
+    final selections = pickedFiles
+        .map((file) => file.path)
+        .where((path) => path.isNotEmpty)
+        .map(
+          (filePath) => LocalImportSelection(
+            path: filePath,
+            platform: Platform.isAndroid ? 'android' : 'macos',
+          ),
+        )
+        .toList(growable: false);
+    return _appleMediaAccessChannel.attachPersistentBookmarks(selections);
+  }
+
+  Future<void> _importSelections(List<LocalImportSelection> selections) async {
+    if (selections.isEmpty) {
       return;
     }
 
-    final knownPaths = _tracks.map((track) => track.filePath).toSet();
-    final supportedPaths = filePaths
-        .where((path) => isSupportedAudioPath(path))
+    final tracksByNormalizedPath = {
+      for (final track in _tracks) path.normalize(track.filePath): track,
+    };
+    final supportedSelections = selections
+        .where((selection) => isSupportedAudioPath(selection.path))
         .toList(growable: false);
-    final duplicateCount = supportedPaths
-        .where((path) => knownPaths.contains(path))
+    final duplicateCount = supportedSelections
+        .where(
+          (selection) => tracksByNormalizedPath.containsKey(
+            path.normalize(selection.path),
+          ),
+        )
         .length;
-    final newTracks = supportedPaths
-        .where((path) => !knownPaths.contains(path))
-        .map((path) => buildTrackFromPath(path))
-        .toList(growable: false);
+    await _ensureCacheDirectoriesReady();
+    final artworkCacheDirectory = _artworkCacheDirectory;
+    if (artworkCacheDirectory == null) {
+      _statusMessage = 'ChiMusic could not prepare its local artwork cache.';
+      notifyListeners();
+      return;
+    }
 
-    if (newTracks.isEmpty) {
+    final payloads = <ImportedTrackPayload>[];
+    final refreshedTracksById = <String, Track>{};
+    final refreshedSourcesById = <String, TrackSourceRecord>{};
+    for (final selection in supportedSelections) {
+      final normalizedPath = path.normalize(selection.path);
+      final payload = await buildImportedTrackFromSelection(
+        selection,
+        artworkCacheDirectory: artworkCacheDirectory,
+      );
+      if (payload == null) {
+        continue;
+      }
+
+      final existingTrack = tracksByNormalizedPath[normalizedPath];
+      if (existingTrack != null) {
+        refreshedTracksById[existingTrack.id] =
+            mergeImportedTrackWithExistingTrack(
+              existing: existingTrack,
+              imported: payload.track,
+            );
+        refreshedSourcesById[existingTrack.id] = payload.source.copyWith(
+          trackId: existingTrack.id,
+        );
+        continue;
+      }
+
+      payloads.add(payload);
+    }
+
+    final newTracks = payloads
+        .map((payload) => payload.track)
+        .toList(growable: false);
+    final refreshedCount = refreshedTracksById.length;
+
+    if (newTracks.isEmpty && refreshedCount == 0) {
       _statusMessage = duplicateCount > 0
           ? 'Everything you picked is already in your ChiMusic library.'
           : 'No supported audio files were found in that selection.';
@@ -1756,13 +2449,39 @@ class MusicAppController extends ChangeNotifier {
       return;
     }
 
-    _tracks = <Track>[...newTracks, ..._tracks];
+    if (refreshedTracksById.isNotEmpty) {
+      _replaceLibraryTracks(
+        _tracks
+            .map((track) => refreshedTracksById[track.id] ?? track)
+            .toList(growable: false),
+      );
+      _trackSourcesByTrackId.addAll(refreshedSourcesById);
+    }
+    if (newTracks.isNotEmpty) {
+      _tracks = <Track>[...newTracks, ..._tracks];
+    }
+    for (final payload in payloads) {
+      _trackSourcesByTrackId[payload.track.id] = payload.source;
+    }
     _primeLyricsStates();
-    final skippedMessage = duplicateCount > 0
-        ? ' Skipped $duplicateCount item${duplicateCount == 1 ? '' : 's'} already in your library.'
-        : '';
-    _statusMessage =
-        'Imported ${newTracks.length} local audio file${newTracks.length == 1 ? '' : 's'}.$skippedMessage';
+    final messageParts = <String>[];
+    if (newTracks.isNotEmpty) {
+      messageParts.add(
+        'Imported ${newTracks.length} local audio file${newTracks.length == 1 ? '' : 's'}',
+      );
+    }
+    if (refreshedCount > 0) {
+      messageParts.add(
+        'refreshed $refreshedCount existing item${refreshedCount == 1 ? '' : 's'} with the latest metadata and availability',
+      );
+    }
+    final skippedCount = duplicateCount - refreshedCount;
+    if (skippedCount > 0) {
+      messageParts.add(
+        'skipped $skippedCount item${skippedCount == 1 ? '' : 's'} already in your library',
+      );
+    }
+    _statusMessage = '${messageParts.join(', ')}.';
 
     if (_currentTrack == null && hasMusic) {
       await _loadQueue(
@@ -1786,9 +2505,17 @@ class MusicAppController extends ChangeNotifier {
     required MusicCollection collection,
     required bool autoplay,
     bool clearStatusMessage = true,
+    Duration startPosition = Duration.zero,
   }) async {
     if (tracks.isEmpty) {
       return;
+    }
+
+    if (_activePlaybackEventId != null) {
+      _closeActivePlaybackEvent(
+        reason: PlaybackEndReason.replaced,
+        finalPosition: _position,
+      );
     }
 
     final clampedIndex = initialIndex.clamp(0, tracks.length - 1);
@@ -1796,35 +2523,50 @@ class MusicAppController extends ChangeNotifier {
     _currentCollection = collection;
     final currentTrack = _queue[clampedIndex];
     _currentTrack = currentTrack;
-    _position = Duration.zero;
-    _lastPersistedPositionBucket = 0;
+    _queue = _orderedQueueForCurrentContext(
+      baseQueue: _queue,
+      currentTrack: currentTrack,
+    );
+    _position = _clampedPositionForTrack(currentTrack, startPosition);
+    _lastPersistedPositionBucket = _position.inSeconds ~/ 5;
     if (clearStatusMessage) {
       _statusMessage = null;
     }
     _isPreparingPlayback = true;
     _isPlaying = autoplay && !_audioEnabled;
-    _markTrackPlayed(currentTrack);
     unawaited(loadLyricsForTrack(currentTrack));
+    unawaited(_prepareWaveformForTrack(currentTrack));
     notifyListeners();
 
     if (!_audioEnabled || _player == null) {
       _isPreparingPlayback = false;
+      if (autoplay) {
+        _startPlaybackForTrack(currentTrack);
+      }
       notifyListeners();
       return;
     }
 
     try {
+      await _refreshQueueFileAccesses(_queue);
       final sources = _queue
-          .map((track) => AudioSource.uri(Uri.file(track.filePath), tag: track))
+          .map(
+            (track) => AudioSource.uri(
+              Uri.file(track.filePath),
+              tag: _buildMediaItem(track),
+            ),
+          )
           .toList(growable: false);
 
       final player = _player;
 
       await player.setAudioSources(
         sources,
-        initialIndex: clampedIndex,
-        initialPosition: Duration.zero,
+        initialIndex: _queue.indexWhere((track) => track.id == currentTrack.id),
+        initialPosition: _position,
       );
+      await player.setLoopMode(_isRepeatEnabled ? LoopMode.all : LoopMode.off);
+      await player.setShuffleModeEnabled(false);
 
       _isPreparingPlayback = false;
       notifyListeners();
@@ -1856,6 +2598,27 @@ class MusicAppController extends ChangeNotifier {
 
     _subscriptions.add(
       player.playerStateStream.listen((state) {
+        if (state.processingState == ProcessingState.completed) {
+          if (_activePlaybackEventId != null) {
+            _closeActivePlaybackEvent(
+              reason: PlaybackEndReason.completed,
+              finalPosition: _currentTrack?.duration ?? _position,
+            );
+          }
+          _isPlaying = false;
+          notifyListeners();
+          _persistSession();
+          return;
+        }
+
+        if (!state.playing && _isPlaying) {
+          _closeActivePlaybackEvent(
+            reason: PlaybackEndReason.paused,
+            finalPosition: _position,
+          );
+        } else if (state.playing && !_isPlaying && _currentTrack != null) {
+          _startPlaybackForTrack(_currentTrack!);
+        }
         _isPlaying = state.playing;
         notifyListeners();
         _persistSession();
@@ -1865,6 +2628,7 @@ class MusicAppController extends ChangeNotifier {
     _subscriptions.add(
       player.positionStream.listen((position) {
         _position = position;
+        _updateActivePlaybackEventProgress(position);
         notifyListeners();
         _persistProgressIfNeeded();
       }),
@@ -1881,9 +2645,18 @@ class MusicAppController extends ChangeNotifier {
           return;
         }
 
+        if (_activePlaybackEventId != null) {
+          _closeActivePlaybackEvent(
+            reason: PlaybackEndReason.replaced,
+            finalPosition: _position,
+          );
+        }
         _currentTrack = nextTrack;
-        _markTrackPlayed(nextTrack);
         unawaited(loadLyricsForTrack(nextTrack));
+        unawaited(_prepareWaveformForTrack(nextTrack));
+        if (_isPlaying) {
+          _startPlaybackForTrack(nextTrack);
+        }
         notifyListeners();
       }),
     );
@@ -1941,18 +2714,144 @@ class MusicAppController extends ChangeNotifier {
     }
   }
 
-  void _markTrackPlayed(Track track) {
+  MediaItem _buildMediaItem(Track track) {
+    final artworkUri = track.artworkUri;
+    return MediaItem(
+      id: track.id,
+      title: track.title,
+      album: track.album,
+      artist: track.artist,
+      genre: track.genre,
+      duration: track.duration,
+      artUri: artworkUri != null && path.isAbsolute(artworkUri)
+          ? Uri.file(artworkUri)
+          : null,
+      extras: <String, dynamic>{
+        'fileExtension': track.fileExtension,
+        'year': track.year,
+      },
+    );
+  }
+
+  void _startPlaybackForTrack(Track track) {
+    final activeId = _activePlaybackEventId;
+    if (activeId != null) {
+      final activeIndex = _playbackEvents.indexWhere(
+        (event) => event.id == activeId,
+      );
+      if (activeIndex >= 0 &&
+          _playbackEvents[activeIndex].trackId == track.id) {
+        return;
+      }
+    }
+
+    final now = DateTime.now();
     _rememberRecentTrack(track.id);
     final existingEntry = _playbackHistoryByTrackId[track.id];
     _playbackHistoryByTrackId[track.id] = PlaybackHistoryEntry(
       trackId: track.id,
-      lastPlayedAt: DateTime.now(),
+      lastPlayedAt: now,
       lastPosition: Duration.zero,
       playCount: (existingEntry?.playCount ?? 0) + 1,
+      totalListened: existingEntry?.totalListened ?? Duration.zero,
     );
 
+    final event = PlaybackEvent(
+      id: '${track.id}::${now.microsecondsSinceEpoch}',
+      trackId: track.id,
+      collectionId: _currentCollection?.id,
+      startedAt: now,
+      maxPosition: _position,
+    );
+    _playbackEvents.insert(0, event);
+    _activePlaybackEventId = event.id;
+    _activePlaybackEventStartPositions[event.id] = _position;
     _persistSession();
     unawaited(_refreshRecommendationContent());
+  }
+
+  void _updateActivePlaybackEventProgress(Duration position) {
+    final activeId = _activePlaybackEventId;
+    if (activeId == null) {
+      return;
+    }
+
+    final eventIndex = _playbackEvents.indexWhere(
+      (event) => event.id == activeId,
+    );
+    if (eventIndex < 0) {
+      _activePlaybackEventStartPositions.remove(activeId);
+      _activePlaybackEventId = null;
+      return;
+    }
+
+    final event = _playbackEvents[eventIndex];
+    if (position <= event.maxPosition) {
+      return;
+    }
+
+    _playbackEvents[eventIndex] = event.copyWith(maxPosition: position);
+  }
+
+  void _closeActivePlaybackEvent({
+    required PlaybackEndReason reason,
+    Duration? finalPosition,
+  }) {
+    final activeId = _activePlaybackEventId;
+    if (activeId == null) {
+      return;
+    }
+
+    final eventIndex = _playbackEvents.indexWhere(
+      (event) => event.id == activeId,
+    );
+    if (eventIndex < 0) {
+      _activePlaybackEventStartPositions.remove(activeId);
+      _activePlaybackEventId = null;
+      return;
+    }
+
+    final event = _playbackEvents[eventIndex];
+    final rawStartPosition =
+        _activePlaybackEventStartPositions.remove(activeId) ?? Duration.zero;
+    Track? track;
+    for (final candidate in _tracks) {
+      if (candidate.id == event.trackId) {
+        track = candidate;
+        break;
+      }
+    }
+    if (track == null && _currentTrack?.id == event.trackId) {
+      track = _currentTrack;
+    }
+    final clampedPosition = track == null
+        ? (finalPosition ?? _position)
+        : _clampedPositionForTrack(track, finalPosition ?? _position);
+    final startPosition = track == null
+        ? rawStartPosition
+        : _clampedPositionForTrack(track, rawStartPosition);
+    final maxPosition = clampedPosition > event.maxPosition
+        ? clampedPosition
+        : event.maxPosition;
+    final listenedThisEvent = maxPosition > startPosition
+        ? maxPosition - startPosition
+        : Duration.zero;
+
+    _playbackEvents[eventIndex] = event.copyWith(
+      endedAt: DateTime.now(),
+      maxPosition: maxPosition,
+      endReason: reason,
+    );
+    _activePlaybackEventId = null;
+
+    final existingEntry = _playbackHistoryByTrackId[event.trackId];
+    if (existingEntry != null) {
+      _playbackHistoryByTrackId[event.trackId] = existingEntry.copyWith(
+        lastPosition: _resumePositionForTrack(track, maxPosition, reason),
+        totalListened: existingEntry.totalListened + listenedThisEvent,
+      );
+    }
+    _persistSession();
   }
 
   Future<void> flushSession() async {
@@ -1961,14 +2860,23 @@ class MusicAppController extends ChangeNotifier {
   }
 
   Future<void> _persistSession() {
-    final sessionStore = _sessionStore;
-    if (sessionStore == null) {
+    final repository = _repository;
+    if (repository == null) {
       return Future<void>.value();
     }
 
-    final snapshot = MusicSessionSnapshot(
+    final snapshot = MusicRepositorySnapshot(
       tracks: List<Track>.from(_tracks),
-      playbackHistory: _playbackHistoryByTrackId.values.toList(growable: false),
+      trackSources: _trackSourcesByTrackId.values.toList(growable: false),
+      playbackStats: _playbackHistoryByTrackId.values.toList(growable: false),
+      playbackEvents: List<PlaybackEvent>.from(_playbackEvents),
+      playbackSession: PlaybackSessionState(
+        queueTrackIds: _queue.map((track) => track.id).toList(growable: false),
+        currentTrackId: _currentTrack?.id,
+        currentCollectionId: _currentCollection?.id,
+        position: _position,
+        updatedAt: DateTime.now(),
+      ),
       likedTrackIds: Set<String>.from(_likedTrackIds),
       savedCollectionIds: Set<String>.from(_savedCollectionIds),
       recentTrackIds: List<String>.from(_recentTrackIds),
@@ -1978,18 +2886,17 @@ class MusicAppController extends ChangeNotifier {
       librarySort: _librarySort,
       searchQuery: _searchQuery,
       searchMode: _searchMode,
-      queueTrackIds: _queue.map((track) => track.id).toList(growable: false),
-      currentTrackId: _currentTrack?.id,
-      currentCollectionId: _currentCollection?.id,
-      positionMs: _position.inMilliseconds,
       userProfile: _userProfile,
       aiSearchTrialsRemaining: _aiSearchTrialsRemaining,
       hasUnlockedAiUpsell: _hasUnlockedAiUpsell,
+      themeMode: _themeMode,
+      isShuffleEnabled: _isShuffleEnabled,
+      isRepeatEnabled: _isRepeatEnabled,
     );
 
     _persistOperation = _persistOperation.then((_) async {
       try {
-        await sessionStore.save(snapshot);
+        await repository.save(snapshot);
       } catch (_) {
         // Best-effort persistence keeps the UI responsive even if storage fails.
       }
@@ -2032,6 +2939,68 @@ class MusicAppController extends ChangeNotifier {
     return migratedHistory;
   }
 
+  Future<void> _restoreTrackAccessAndPlayback(
+    MusicSessionSnapshot snapshot,
+  ) async {
+    final restoreFuture = _restorePlaybackSnapshot(snapshot);
+    final didBackfillBookmarks = await _backfillMissingTrackSourceBookmarks();
+    await restoreFuture;
+
+    final shouldRetryRestore =
+        didBackfillBookmarks &&
+        _audioEnabled &&
+        _player != null &&
+        (_statusMessage ==
+                'Unable to restore the last playback queue in this environment.' ||
+            _statusMessage ==
+                'Playback queue restore failed. Your library is still available.');
+    if (shouldRetryRestore) {
+      _statusMessage = null;
+      await _restorePlaybackSnapshot(snapshot);
+    }
+
+    if (didBackfillBookmarks) {
+      await _persistSession();
+    }
+  }
+
+  Future<bool> _backfillMissingTrackSourceBookmarks() async {
+    final sourcesNeedingBookmarks = _trackSourcesByTrackId.entries
+        .where(
+          (entry) =>
+              entry.value.locator.isNotEmpty &&
+              (entry.value.bookmarkBase64 == null ||
+                  entry.value.bookmarkBase64!.isEmpty),
+        )
+        .toList(growable: false);
+    if (sourcesNeedingBookmarks.isEmpty) {
+      return false;
+    }
+
+    final bookmarksByPath = await _appleMediaAccessChannel
+        .createBookmarksByPath(
+          sourcesNeedingBookmarks.map((entry) => entry.value.locator),
+        );
+    if (bookmarksByPath.isEmpty) {
+      return false;
+    }
+
+    var changed = false;
+    for (final entry in sourcesNeedingBookmarks) {
+      final bookmarkBase64 = bookmarksByPath[entry.value.locator];
+      if (bookmarkBase64 == null || bookmarkBase64.isEmpty) {
+        continue;
+      }
+
+      _trackSourcesByTrackId[entry.key] = entry.value.copyWith(
+        bookmarkBase64: bookmarkBase64,
+      );
+      changed = true;
+    }
+
+    return changed;
+  }
+
   Future<void> _restorePlaybackSnapshot(MusicSessionSnapshot snapshot) async {
     final tracksById = {for (final track in _tracks) track.id: track};
     final queue = snapshot.queueTrackIds
@@ -2049,9 +3018,6 @@ class MusicAppController extends ChangeNotifier {
         break;
       }
     }
-    final currentIndex = queue.indexWhere(
-      (track) => track.id == currentTrack.id,
-    );
     final initialPosition = _clampedPositionForTrack(
       currentTrack,
       Duration(milliseconds: snapshot.positionMs),
@@ -2060,12 +3026,17 @@ class MusicAppController extends ChangeNotifier {
     _queue = queue;
     _currentTrack = currentTrack;
     _currentCollection = _restoreCollectionFromId(snapshot.currentCollectionId);
+    _queue = _orderedQueueForCurrentContext(
+      baseQueue: _queue,
+      currentTrack: currentTrack,
+    );
     _position = initialPosition;
     _isPlaying = false;
     _isPreparingPlayback = _audioEnabled && _player != null;
     _lastPersistedPositionBucket = initialPosition.inSeconds ~/ 5;
     _syncCurrentTrackHistoryPosition(initialPosition);
     unawaited(loadLyricsForTrack(currentTrack));
+    unawaited(_prepareWaveformForTrack(currentTrack));
 
     if (!_audioEnabled || _player == null) {
       _isPreparingPlayback = false;
@@ -2073,7 +3044,15 @@ class MusicAppController extends ChangeNotifier {
     }
 
     try {
-      final sources = queue
+      await _refreshQueueFileAccesses(queue);
+      final restoredQueue = List<Track>.from(_queue);
+      final restoredCurrentTrack = _currentTrack;
+      if (restoredQueue.isEmpty || restoredCurrentTrack == null) {
+        _isPreparingPlayback = false;
+        return;
+      }
+
+      final sources = restoredQueue
           .map((track) => AudioSource.uri(Uri.file(track.filePath), tag: track))
           .toList(growable: false);
 
@@ -2081,9 +3060,19 @@ class MusicAppController extends ChangeNotifier {
 
       await player.setAudioSources(
         sources,
-        initialIndex: currentIndex < 0 ? 0 : currentIndex,
-        initialPosition: initialPosition,
+        initialIndex: max(
+          0,
+          restoredQueue.indexWhere(
+            (track) => track.id == restoredCurrentTrack.id,
+          ),
+        ),
+        initialPosition: _clampedPositionForTrack(
+          restoredCurrentTrack,
+          _position,
+        ),
       );
+      await player.setLoopMode(_isRepeatEnabled ? LoopMode.all : LoopMode.off);
+      await player.setShuffleModeEnabled(false);
       await player.pause();
       _isPreparingPlayback = false;
     } on PlayerException {
@@ -2124,6 +3113,29 @@ class MusicAppController extends ChangeNotifier {
     return position;
   }
 
+  Duration _resumePositionForTrack(
+    Track? track,
+    Duration position,
+    PlaybackEndReason reason,
+  ) {
+    if (track == null) {
+      return position;
+    }
+
+    final clamped = _clampedPositionForTrack(track, position);
+    final duration = track.duration;
+    if (duration == null) {
+      return clamped;
+    }
+
+    final nearlyComplete = duration - clamped <= const Duration(seconds: 3);
+    if (reason == PlaybackEndReason.completed || nearlyComplete) {
+      return Duration.zero;
+    }
+
+    return clamped;
+  }
+
   void _rememberRecentTrack(String trackId) {
     _recentTrackIds.remove(trackId);
     _recentTrackIds.insert(0, trackId);
@@ -2145,6 +3157,7 @@ class MusicAppController extends ChangeNotifier {
       lastPlayedAt: existingEntry?.lastPlayedAt ?? DateTime.now(),
       lastPosition: _clampedPositionForTrack(currentTrack, position),
       playCount: existingEntry?.playCount ?? 1,
+      totalListened: existingEntry?.totalListened ?? Duration.zero,
     );
   }
 
@@ -2164,6 +3177,53 @@ class MusicAppController extends ChangeNotifier {
     _persistSession();
   }
 
+  void _applyRepositorySnapshot(MusicRepositorySnapshot snapshot) {
+    _trackSourcesByTrackId
+      ..clear()
+      ..addEntries(
+        snapshot.trackSources.map((source) => MapEntry(source.trackId, source)),
+      );
+    _activePlaybackEventStartPositions.clear();
+    final restoredAt = snapshot.playbackSession.updatedAt ?? DateTime.now();
+    _playbackEvents = snapshot.playbackEvents
+        .map(
+          (event) => event.isOpen
+              ? event.copyWith(
+                  endedAt: restoredAt,
+                  endReason: PlaybackEndReason.stopped,
+                )
+              : event,
+        )
+        .toList();
+    _activePlaybackEventId = null;
+
+    _applySessionSnapshot(
+      MusicSessionSnapshot(
+        tracks: snapshot.tracks,
+        playbackHistory: snapshot.playbackStats,
+        likedTrackIds: snapshot.likedTrackIds,
+        savedCollectionIds: snapshot.savedCollectionIds,
+        recentTrackIds: snapshot.recentTrackIds,
+        recentSearches: snapshot.recentSearches,
+        selectedTab: snapshot.selectedTab,
+        libraryFilter: snapshot.libraryFilter,
+        librarySort: snapshot.librarySort,
+        searchQuery: snapshot.searchQuery,
+        searchMode: snapshot.searchMode,
+        queueTrackIds: snapshot.playbackSession.queueTrackIds,
+        currentTrackId: snapshot.playbackSession.currentTrackId,
+        currentCollectionId: snapshot.playbackSession.currentCollectionId,
+        positionMs: snapshot.playbackSession.position.inMilliseconds,
+        userProfile: snapshot.userProfile,
+        aiSearchTrialsRemaining: snapshot.aiSearchTrialsRemaining,
+        hasUnlockedAiUpsell: snapshot.hasUnlockedAiUpsell,
+        themeMode: snapshot.themeMode,
+        isShuffleEnabled: snapshot.isShuffleEnabled,
+        isRepeatEnabled: snapshot.isRepeatEnabled,
+      ),
+    );
+  }
+
   void _applySessionSnapshot(MusicSessionSnapshot snapshot) {
     final tracks = snapshot.tracks
         .where((track) => track.filePath.isNotEmpty)
@@ -2171,6 +3231,19 @@ class MusicAppController extends ChangeNotifier {
     final trackIds = tracks.map((track) => track.id).toSet();
 
     _tracks = tracks;
+    _trackSourcesByTrackId.removeWhere(
+      (trackId, _) => !trackIds.contains(trackId),
+    );
+    for (final track in _tracks) {
+      _trackSourcesByTrackId.putIfAbsent(
+        track.id,
+        () => TrackSourceRecord(
+          trackId: track.id,
+          platform: 'local',
+          locator: track.filePath,
+        ),
+      );
+    }
     _likedTrackIds
       ..clear()
       ..addAll(snapshot.likedTrackIds.where(trackIds.contains));
@@ -2197,11 +3270,17 @@ class MusicAppController extends ChangeNotifier {
     _userProfile = snapshot.userProfile;
     _aiSearchTrialsRemaining = snapshot.aiSearchTrialsRemaining;
     _hasUnlockedAiUpsell = snapshot.hasUnlockedAiUpsell;
+    _themeMode = snapshot.themeMode;
+    _isShuffleEnabled = snapshot.isShuffleEnabled;
+    _isRepeatEnabled = snapshot.isRepeatEnabled;
     _savedCollectionIds.removeWhere(
       (collectionId) => collectionById(collectionId) == null,
     );
+    _waveformsByTrackId.removeWhere(
+      (trackId, _) => !trackIds.contains(trackId),
+    );
     _primeLyricsStates();
-    unawaited(_restorePlaybackSnapshot(snapshot));
+    unawaited(_restoreTrackAccessAndPlayback(snapshot));
   }
 
   SyncState _buildDefaultSyncState() {
@@ -2348,6 +3427,9 @@ class MusicAppController extends ChangeNotifier {
       searchQuery: _searchQuery,
       aiSearchTrialsRemaining: _aiSearchTrialsRemaining,
       hasUnlockedAiUpsell: _hasUnlockedAiUpsell,
+      themeMode: _themeMode,
+      isShuffleEnabled: _isShuffleEnabled,
+      isRepeatEnabled: _isRepeatEnabled,
     );
     _applySessionSnapshot(localSnapshot);
     await _refreshOnlineState(notifyAfterCompletion: false);
@@ -2391,7 +3473,15 @@ class MusicAppController extends ChangeNotifier {
   @override
   void dispose() {
     _isDisposed = true;
+    if (_activePlaybackEventId != null) {
+      _closeActivePlaybackEvent(
+        reason: PlaybackEndReason.stopped,
+        finalPosition: _position,
+      );
+    }
     unawaited(flushSession());
+    unawaited(_releaseQueueFileAccesses());
+    unawaited(_repository?.close() ?? Future<void>.value());
     for (final subscription in _subscriptions) {
       subscription.cancel();
     }

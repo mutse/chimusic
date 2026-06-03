@@ -28,6 +28,9 @@ class MusicSessionSnapshot {
     this.userProfile,
     this.aiSearchTrialsRemaining = 2,
     this.hasUnlockedAiUpsell = false,
+    this.themeMode = AppThemeMode.dark,
+    this.isShuffleEnabled = false,
+    this.isRepeatEnabled = false,
   });
 
   final List<Track> tracks;
@@ -48,6 +51,9 @@ class MusicSessionSnapshot {
   final UserProfile? userProfile;
   final int aiSearchTrialsRemaining;
   final bool hasUnlockedAiUpsell;
+  final AppThemeMode themeMode;
+  final bool isShuffleEnabled;
+  final bool isRepeatEnabled;
 
   Map<String, Object?> toJson() {
     return <String, Object?>{
@@ -73,6 +79,9 @@ class MusicSessionSnapshot {
           : _userProfileToJson(userProfile!),
       'aiSearchTrialsRemaining': aiSearchTrialsRemaining,
       'hasUnlockedAiUpsell': hasUnlockedAiUpsell,
+      'themeMode': themeMode.name,
+      'isShuffleEnabled': isShuffleEnabled,
+      'isRepeatEnabled': isRepeatEnabled,
     };
   }
 
@@ -125,6 +134,13 @@ class MusicSessionSnapshot {
           : null,
       aiSearchTrialsRemaining: (json['aiSearchTrialsRemaining'] as int?) ?? 2,
       hasUnlockedAiUpsell: (json['hasUnlockedAiUpsell'] as bool?) ?? false,
+      themeMode: _enumByName(
+        AppThemeMode.values,
+        json['themeMode'] as String?,
+        AppThemeMode.dark,
+      ),
+      isShuffleEnabled: (json['isShuffleEnabled'] as bool?) ?? false,
+      isRepeatEnabled: (json['isRepeatEnabled'] as bool?) ?? false,
     );
   }
 }
@@ -294,10 +310,16 @@ Map<String, Object?> _trackToJson(Track track) {
     'fileExtension': track.fileExtension,
     'artworkUri': track.artworkUri,
     'lyricsAvailability': track.lyricsAvailability.name,
+    'albumArtist': track.albumArtist,
     'genre': track.genre,
     'year': track.year,
     'bitrate': track.bitrate,
+    'trackNumber': track.trackNumber,
+    'discNumber': track.discNumber,
     'fingerprint': track.fingerprint,
+    'waveformUri': track.waveformUri,
+    'availability': track.availability.name,
+    'lastValidatedAt': track.lastValidatedAt?.millisecondsSinceEpoch,
     'cloudMatchStatus': track.cloudMatchStatus.name,
     'lastSyncedAt': track.lastSyncedAt?.millisecondsSinceEpoch,
     'credits': track.credits,
@@ -334,10 +356,23 @@ Track _trackFromJson(Map<String, dynamic> json) {
       json['lyricsAvailability'] as String?,
       LyricsAvailability.unavailable,
     ),
+    albumArtist: json['albumArtist'] as String?,
     genre: json['genre'] as String?,
     year: json['year'] as int?,
     bitrate: json['bitrate'] as int?,
+    trackNumber: json['trackNumber'] as int?,
+    discNumber: json['discNumber'] as int?,
     fingerprint: json['fingerprint'] as String?,
+    waveformUri: json['waveformUri'] as String?,
+    availability: _enumByName(
+      TrackAvailability.values,
+      json['availability'] as String?,
+      TrackAvailability.available,
+    ),
+    lastValidatedAt: switch (json['lastValidatedAt']) {
+      final int value => DateTime.fromMillisecondsSinceEpoch(value),
+      _ => null,
+    },
     cloudMatchStatus: _enumByName(
       CloudMatchStatus.values,
       json['cloudMatchStatus'] as String?,
@@ -357,6 +392,7 @@ Map<String, Object?> _playbackHistoryEntryToJson(PlaybackHistoryEntry entry) {
     'lastPlayedAt': entry.lastPlayedAt.millisecondsSinceEpoch,
     'lastPositionMs': entry.lastPosition.inMilliseconds,
     'playCount': entry.playCount,
+    'totalListenedMs': entry.totalListened.inMilliseconds,
   };
 }
 
@@ -368,6 +404,9 @@ PlaybackHistoryEntry _playbackHistoryEntryFromJson(Map<String, dynamic> json) {
     ),
     lastPosition: Duration(milliseconds: (json['lastPositionMs'] as int?) ?? 0),
     playCount: (json['playCount'] as int?) ?? 1,
+    totalListened: Duration(
+      milliseconds: (json['totalListenedMs'] as int?) ?? 0,
+    ),
   );
 }
 

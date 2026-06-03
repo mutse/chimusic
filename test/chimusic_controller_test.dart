@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:chimusic/data/music_repository.dart';
 import 'package:chimusic/data/music_session_store.dart';
 import 'package:chimusic/models/music_models.dart';
 import 'package:chimusic/state/chimusic_controller.dart';
@@ -310,6 +311,39 @@ void main() {
       expect(entry.lastPosition, const Duration(minutes: 1));
     });
 
+    test(
+      'resume playback adds only newly listened time to total history',
+      () async {
+        final track = _track(
+          folderPath: '/music/history',
+          title: 'Replay',
+          artist: 'North Coast',
+          album: 'Sea Glass',
+          duration: const Duration(minutes: 4),
+          importedAt: DateTime(2026, 5, 6, 16),
+        );
+        final controller = MusicAppController(
+          enableAudio: false,
+          initialTracks: [track],
+        );
+        addTearDown(controller.dispose);
+
+        await controller.playImportedTracks();
+        await controller.seekToFraction(0.5);
+        await controller.togglePlayPause();
+
+        await controller.resumeTrack(track);
+        await controller.seekToFraction(0.75);
+        await controller.togglePlayPause();
+
+        final entry = controller.playbackHistoryEntryForTrack(track.id);
+        expect(entry, isNotNull);
+        expect(entry!.playCount, 2);
+        expect(entry.lastPosition, const Duration(minutes: 3));
+        expect(entry.totalListened, const Duration(minutes: 3));
+      },
+    );
+
     test('restoreSession rehydrates saved playback history details', () async {
       final track = _track(
         folderPath: '/music/history',
@@ -348,6 +382,161 @@ void main() {
       expect(restoredEntry!.lastPosition, entry.lastPosition);
       expect(restoredEntry.playCount, entry.playCount);
     });
+
+    test(
+      'recent session groups, resume tracks, and most played tracks derive from persisted playback data',
+      () {
+        final resumeTrack = _track(
+          folderPath: '/music/history',
+          title: 'Resume Me',
+          artist: 'North Coast',
+          album: 'Sea Glass',
+          duration: const Duration(minutes: 4),
+          importedAt: DateTime(2026, 5, 6, 16),
+        );
+        final mostPlayedTrack = _track(
+          folderPath: '/music/history',
+          title: 'Looped',
+          artist: 'North Coast',
+          album: 'Sea Glass',
+          duration: const Duration(minutes: 5),
+          importedAt: DateTime(2026, 5, 6, 17),
+        );
+        final supportingTrack = _track(
+          folderPath: '/music/history',
+          title: 'Side Street',
+          artist: 'North Coast',
+          album: 'Sea Glass',
+          duration: const Duration(minutes: 3, seconds: 20),
+          importedAt: DateTime(2026, 5, 6, 18),
+        );
+        final controller = MusicAppController(
+          enableAudio: false,
+          initialTracks: [resumeTrack, mostPlayedTrack, supportingTrack],
+          initialPlaybackHistory: [
+            PlaybackHistoryEntry(
+              trackId: resumeTrack.id,
+              lastPlayedAt: DateTime(2026, 5, 8, 10),
+              lastPosition: const Duration(minutes: 1, seconds: 32),
+              playCount: 2,
+              totalListened: const Duration(minutes: 4, seconds: 18),
+            ),
+            PlaybackHistoryEntry(
+              trackId: mostPlayedTrack.id,
+              lastPlayedAt: DateTime(2026, 5, 8, 8),
+              playCount: 6,
+              totalListened: const Duration(minutes: 18),
+            ),
+            PlaybackHistoryEntry(
+              trackId: supportingTrack.id,
+              lastPlayedAt: DateTime(2026, 5, 7, 21),
+              playCount: 1,
+              totalListened: const Duration(minutes: 2),
+            ),
+          ],
+          initialPlaybackEvents: [
+            PlaybackEvent(
+              id: 'evt-1',
+              trackId: resumeTrack.id,
+              startedAt: DateTime(2026, 5, 8, 10),
+              endedAt: DateTime(2026, 5, 8, 10, 2),
+              maxPosition: const Duration(minutes: 1, seconds: 32),
+              endReason: PlaybackEndReason.paused,
+              collectionId: '/music/history',
+            ),
+            PlaybackEvent(
+              id: 'evt-2',
+              trackId: mostPlayedTrack.id,
+              startedAt: DateTime(2026, 5, 8, 8),
+              endedAt: DateTime(2026, 5, 8, 8, 5),
+              maxPosition: const Duration(minutes: 5),
+              endReason: PlaybackEndReason.completed,
+              collectionId: '/music/history',
+            ),
+            PlaybackEvent(
+              id: 'evt-3',
+              trackId: supportingTrack.id,
+              startedAt: DateTime(2026, 5, 7, 21),
+              endedAt: DateTime(2026, 5, 7, 21, 2),
+              maxPosition: const Duration(minutes: 2),
+              endReason: PlaybackEndReason.stopped,
+              collectionId: '/music/history',
+            ),
+          ],
+        );
+        addTearDown(controller.dispose);
+
+        expect(controller.resumeTracks.map((track) => track.id), [
+          resumeTrack.id,
+        ]);
+        expect(controller.continueListeningTracks.first.id, resumeTrack.id);
+        expect(controller.mostPlayedTracks.first.id, mostPlayedTrack.id);
+        expect(controller.playbackEventsForTrack(resumeTrack.id), hasLength(1));
+        expect(controller.recentSessionGroups, hasLength(2));
+        expect(controller.recentSessionGroups.first.events, hasLength(2));
+      },
+    );
+
+    test(
+      'restoreSession closes stale open events so playback can start a fresh event',
+      () async {
+        final track = _track(
+          folderPath: '/music/history',
+          title: 'Resume Me',
+          artist: 'North Coast',
+          album: 'Sea Glass',
+          duration: const Duration(minutes: 4),
+          importedAt: DateTime(2026, 5, 6, 16),
+        );
+        final repository = InMemoryMusicRepository(
+          MusicRepositorySnapshot(
+            tracks: [track],
+            playbackStats: [
+              PlaybackHistoryEntry(
+                trackId: track.id,
+                lastPlayedAt: DateTime(2026, 5, 8, 10),
+                lastPosition: const Duration(minutes: 2),
+                playCount: 1,
+                totalListened: const Duration(minutes: 2),
+              ),
+            ],
+            playbackEvents: [
+              PlaybackEvent(
+                id: 'open-event',
+                trackId: track.id,
+                startedAt: DateTime(2026, 5, 8, 10),
+                maxPosition: const Duration(minutes: 2),
+              ),
+            ],
+            playbackSession: PlaybackSessionState(
+              queueTrackIds: [track.id],
+              currentTrackId: track.id,
+              currentCollectionId: 'all_tracks',
+              position: const Duration(minutes: 2),
+              updatedAt: DateTime(2026, 5, 8, 10, 2),
+            ),
+          ),
+        );
+        final controller = MusicAppController(
+          enableAudio: false,
+          repository: repository,
+        );
+        addTearDown(controller.dispose);
+
+        await controller.restoreSession();
+
+        expect(
+          controller.playbackEvents.single.endReason,
+          PlaybackEndReason.stopped,
+        );
+
+        await controller.togglePlayPause();
+
+        expect(controller.isPlaying, isTrue);
+        expect(controller.playbackEvents.first.isOpen, isTrue);
+        expect(controller.playbackHistoryEntryForTrack(track.id)?.playCount, 2);
+      },
+    );
 
     test(
       'state changes persist through the configured session store',
@@ -693,6 +882,77 @@ void main() {
         expect(controller.albumCount, 2);
       },
     );
+
+    test(
+      'theme and playback mode preferences persist across restore',
+      () async {
+        final repository = InMemoryMusicRepository();
+        final controller = MusicAppController(
+          enableAudio: false,
+          repository: repository,
+        );
+        addTearDown(controller.dispose);
+
+        controller.setThemeMode(AppThemeMode.light);
+        await controller.toggleShuffle();
+        await controller.toggleRepeat();
+        await controller.flushSession();
+
+        final restored = MusicAppController(
+          enableAudio: false,
+          repository: repository,
+        );
+        addTearDown(restored.dispose);
+
+        await restored.restoreSession();
+
+        expect(restored.themeMode, AppThemeMode.light);
+        expect(restored.isShuffleEnabled, isTrue);
+        expect(restored.isRepeatEnabled, isTrue);
+      },
+    );
+
+    test('skipNext wraps only when repeat is enabled', () async {
+      final firstTrack = _track(
+        folderPath: '/music/queue',
+        title: 'First Light',
+        artist: 'North Coast',
+        album: 'Queue',
+        duration: const Duration(minutes: 3),
+        importedAt: DateTime(2026, 5, 5, 20),
+      );
+      final secondTrack = _track(
+        folderPath: '/music/queue',
+        title: 'Second Signal',
+        artist: 'North Coast',
+        album: 'Queue',
+        duration: const Duration(minutes: 4),
+        importedAt: DateTime(2026, 5, 5, 21),
+      );
+      final collection = MusicCollection(
+        id: 'queue',
+        title: 'Queue',
+        subtitle: '2 tracks',
+        description: 'Test queue',
+        kind: MusicCollectionKind.playlist,
+        palette: secondTrack.palette,
+        tracks: [firstTrack, secondTrack],
+      );
+      final controller = MusicAppController(
+        enableAudio: false,
+        initialTracks: [firstTrack, secondTrack],
+      );
+      addTearDown(controller.dispose);
+
+      await controller.playTrack(secondTrack, collection: collection);
+
+      await controller.skipNext();
+      expect(controller.currentTrack?.id, secondTrack.id);
+
+      await controller.toggleRepeat();
+      await controller.skipNext();
+      expect(controller.currentTrack?.id, firstTrack.id);
+    });
   });
 }
 

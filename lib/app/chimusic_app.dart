@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../data/music_repository.dart';
 import '../data/music_session_store.dart';
+import '../models/music_models.dart';
 import '../state/chimusic_controller.dart';
 import '../state/chimusic_scope.dart';
 import '../widgets/app_shell.dart';
@@ -30,7 +32,11 @@ class _ChiMusicRootState extends State<ChiMusicRoot>
     _ownsController = widget.controller == null;
     _controller =
         widget.controller ??
-        MusicAppController(sessionStore: SharedPreferencesMusicSessionStore());
+        MusicAppController(
+          repository: SqliteMusicRepository(
+            legacySessionStore: SharedPreferencesMusicSessionStore(),
+          ),
+        );
     _restoreFuture = _controller.restoreSession();
   }
 
@@ -61,22 +67,31 @@ class _ChiMusicRootState extends State<ChiMusicRoot>
   Widget build(BuildContext context) {
     return ChiMusicScope(
       notifier: _controller,
-      child: MaterialApp(
-        debugShowCheckedModeBanner: false,
-        title: 'ChiMusic',
-        theme: buildChiMusicTheme(),
-        home: _restoreFuture == null
-            ? const AppShell()
-            : FutureBuilder<void>(
-                future: _restoreFuture,
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState != ConnectionState.done) {
-                    return const _StartupScreen();
-                  }
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, _) {
+          return MaterialApp(
+            debugShowCheckedModeBanner: false,
+            title: 'ChiMusic',
+            theme: buildChiMusicTheme(brightness: Brightness.light),
+            darkTheme: buildChiMusicTheme(brightness: Brightness.dark),
+            themeMode: _controller.themeMode == AppThemeMode.light
+                ? ThemeMode.light
+                : ThemeMode.dark,
+            home: _restoreFuture == null
+                ? const AppShell()
+                : FutureBuilder<void>(
+                    future: _restoreFuture,
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState != ConnectionState.done) {
+                        return const _StartupScreen();
+                      }
 
-                  return const AppShell();
-                },
-              ),
+                      return const AppShell();
+                    },
+                  ),
+          );
+        },
       ),
     );
   }

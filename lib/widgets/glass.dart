@@ -1,6 +1,10 @@
+import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:just_waveform/just_waveform.dart';
 
 import '../app/chimusic_theme.dart';
 import '../models/music_models.dart';
@@ -23,26 +27,58 @@ EdgeInsets pagePadding(BuildContext context, {double bottom = 180}) {
 }
 
 class LiquidBackdrop extends StatelessWidget {
-  const LiquidBackdrop({super.key, required this.child});
+  const LiquidBackdrop({
+    super.key,
+    required this.child,
+    this.palette = const <Color>[
+      LiquidPalette.aqua,
+      LiquidPalette.deepCyan,
+      LiquidPalette.surface,
+    ],
+    this.artworkUri,
+  });
 
   final Widget child;
+  final List<Color> palette;
+  final String? artworkUri;
 
   @override
   Widget build(BuildContext context) {
     return DecoratedBox(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            LiquidPalette.background,
-            Color(0xFF0B0D12),
+            Color.alphaBlend(
+              palette.first.withValues(alpha: 0.22),
+              LiquidPalette.background,
+            ),
+            Color.alphaBlend(
+              palette.length > 1
+                  ? palette[1].withValues(alpha: 0.14)
+                  : palette.first.withValues(alpha: 0.14),
+              const Color(0xFF0B0D12),
+            ),
             LiquidPalette.ink,
           ],
         ),
       ),
       child: Stack(
         children: [
+          if (!kIsWeb && artworkUri != null && artworkUri!.isNotEmpty)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: Opacity(
+                  opacity: 0.18,
+                  child: Image.file(
+                    File(artworkUri!),
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                  ),
+                ),
+              ),
+            ),
           const Positioned(
             top: -90,
             left: -30,
@@ -440,6 +476,7 @@ class ArtworkCover extends StatelessWidget {
     required this.title,
     required this.palette,
     required this.size,
+    this.artworkUri,
     this.icon = Icons.graphic_eq_rounded,
     this.showTitle = false,
     this.borderRadius,
@@ -448,6 +485,7 @@ class ArtworkCover extends StatelessWidget {
   final String title;
   final List<Color> palette;
   final double size;
+  final String? artworkUri;
   final IconData icon;
   final bool showTitle;
   final BorderRadius? borderRadius;
@@ -478,6 +516,14 @@ class ArtworkCover extends StatelessWidget {
         borderRadius: radius,
         child: Stack(
           children: [
+            if (!kIsWeb && artworkUri != null && artworkUri!.isNotEmpty)
+              Positioned.fill(
+                child: Image.file(
+                  File(artworkUri!),
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                ),
+              ),
             Positioned(
               left: -size * 0.16,
               top: -size * 0.16,
@@ -552,6 +598,142 @@ class ArtworkCover extends StatelessWidget {
   }
 }
 
+class WaveformProgressBar extends StatelessWidget {
+  const WaveformProgressBar({
+    super.key,
+    required this.progress,
+    required this.palette,
+    this.waveform,
+    this.height = 64,
+    this.onSeek,
+  });
+
+  final double progress;
+  final List<Color> palette;
+  final Waveform? waveform;
+  final double height;
+  final ValueChanged<double>? onSeek;
+
+  @override
+  Widget build(BuildContext context) {
+    final clampedProgress = progress.clamp(0.0, 1.0);
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onHorizontalDragUpdate: onSeek == null
+          ? null
+          : (details) {
+              final box = context.findRenderObject() as RenderBox?;
+              if (box == null || box.size.width <= 0) {
+                return;
+              }
+              final local = box.globalToLocal(details.globalPosition);
+              onSeek!(local.dx / box.size.width);
+            },
+      onTapDown: onSeek == null
+          ? null
+          : (details) {
+              final box = context.findRenderObject() as RenderBox?;
+              if (box == null || box.size.width <= 0) {
+                return;
+              }
+              final local = box.globalToLocal(details.globalPosition);
+              onSeek!(local.dx / box.size.width);
+            },
+      child: CustomPaint(
+        size: Size(double.infinity, height),
+        painter: _WaveformProgressPainter(
+          progress: clampedProgress.toDouble(),
+          palette: palette,
+          waveform: waveform,
+        ),
+      ),
+    );
+  }
+}
+
+class _WaveformProgressPainter extends CustomPainter {
+  const _WaveformProgressPainter({
+    required this.progress,
+    required this.palette,
+    required this.waveform,
+  });
+
+  final double progress;
+  final List<Color> palette;
+  final Waveform? waveform;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final barCount = waveform == null ? 56 : math.min(72, waveform!.length);
+    if (barCount <= 0) {
+      return;
+    }
+
+    final activeColor = palette.first.withValues(alpha: 0.96);
+    final inactiveColor = Colors.white.withValues(alpha: 0.16);
+    final glowPaint = Paint()
+      ..shader = LinearGradient(
+        colors: [
+          palette.first.withValues(alpha: 0.96),
+          palette.length > 1
+              ? palette[1].withValues(alpha: 0.74)
+              : palette.first.withValues(alpha: 0.74),
+        ],
+      ).createShader(Offset.zero & size)
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = math.max(2, size.width / (barCount * 3.6));
+    final inactivePaint = Paint()
+      ..color = inactiveColor
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = glowPaint.strokeWidth;
+
+    final spacing = size.width / barCount;
+    for (var index = 0; index < barCount; index++) {
+      final x = (index + 0.5) * spacing;
+      final heightFactor = _sampleHeight(index, barCount);
+      final barHeight =
+          (size.height * 0.2) + (size.height * 0.7 * heightFactor);
+      final top = (size.height - barHeight) / 2;
+      final bottom = top + barHeight;
+      final paint = index / barCount <= progress ? glowPaint : inactivePaint;
+      canvas.drawLine(Offset(x, top), Offset(x, bottom), paint);
+    }
+
+    final progressX = size.width * progress;
+    final scrubberPaint = Paint()..color = activeColor;
+    canvas.drawCircle(
+      Offset(progressX.clamp(0.0, size.width), size.height / 2),
+      glowPaint.strokeWidth * 0.95,
+      scrubberPaint,
+    );
+  }
+
+  double _sampleHeight(int index, int barCount) {
+    if (waveform == null || waveform!.length == 0) {
+      final oscillation = math.sin(index * 0.33) * 0.32;
+      final second = math.cos(index * 0.18) * 0.24;
+      return (0.42 + oscillation + second).clamp(0.12, 1.0);
+    }
+
+    final waveformIndex = (index * waveform!.length / barCount).floor().clamp(
+      0,
+      waveform!.length - 1,
+    );
+    final minValue = waveform!.getPixelMin(waveformIndex).abs();
+    final maxValue = waveform!.getPixelMax(waveformIndex).abs();
+    final normalized = (minValue + maxValue) / 512;
+    return normalized.clamp(0.12, 1.0);
+  }
+
+  @override
+  bool shouldRepaint(covariant _WaveformProgressPainter oldDelegate) {
+    return oldDelegate.progress != progress ||
+        oldDelegate.waveform != waveform ||
+        oldDelegate.palette != palette;
+  }
+}
+
 class TrackRow extends StatelessWidget {
   const TrackRow({
     super.key,
@@ -582,6 +764,7 @@ class TrackRow extends StatelessWidget {
           ArtworkCover(
             title: track.album,
             palette: track.palette,
+            artworkUri: track.artworkUri,
             size: leadingSize,
             borderRadius: BorderRadius.circular(leadingSize * 0.28),
           ),
