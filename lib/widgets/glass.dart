@@ -12,6 +12,14 @@ import '../models/music_models.dart';
 bool isDesktopWidth(BuildContext context) =>
     MediaQuery.sizeOf(context).width >= 1100;
 
+bool usesDesktopSidebar(BuildContext context) {
+  final platform = Theme.of(context).platform;
+  return switch (platform) {
+    TargetPlatform.macOS || TargetPlatform.windows => true,
+    _ => isDesktopWidth(context),
+  };
+}
+
 bool isWideWidth(BuildContext context) =>
     MediaQuery.sizeOf(context).width >= 820;
 

@@ -8,6 +8,7 @@ import 'package:chimusic/screens/now_playing_sheet.dart';
 import 'package:chimusic/state/chimusic_controller.dart';
 import 'package:chimusic/state/chimusic_scope.dart';
 import 'package:chimusic/widgets/app_shell.dart';
+import 'package:chimusic/widgets/glass.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -29,6 +30,44 @@ void main() {
     expect(find.text('记录'), findsOneWidget);
     expect(find.text('设置'), findsOneWidget);
     expect(find.text('音乐库还是空的'), findsOneWidget);
+  });
+
+  testWidgets('macOS desktop keeps the navigation on the left', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(430, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(platform: TargetPlatform.macOS),
+        home: Builder(
+          builder: (context) =>
+              Text(usesDesktopSidebar(context) ? 'desktop' : 'mobile'),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('desktop'), findsOneWidget);
+  });
+
+  testWidgets('Windows desktop keeps the navigation on the left', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(430, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(platform: TargetPlatform.windows),
+        home: Builder(
+          builder: (context) =>
+              Text(usesDesktopSidebar(context) ? 'desktop' : 'mobile'),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('desktop'), findsOneWidget);
   });
 
   testWidgets('home metrics do not overflow on compact wide layouts', (
