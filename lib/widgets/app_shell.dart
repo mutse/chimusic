@@ -12,7 +12,7 @@ class AppShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return isDesktopWidth(context)
+    return usesDesktopSidebar(context)
         ? const MacosPlayerShell()
         : const MobilePlayerShell();
   }
