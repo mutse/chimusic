@@ -56,7 +56,7 @@ class MockRecommendationService implements RecommendationService {
         reason: 'Recent completions and repeat plays carry the highest weight.',
         palette: momentum.first.palette,
         tracks: momentum,
-        callToActionLabel: 'Open AI Search',
+        callToActionLabel: 'Open Local Mix',
         callToActionQuery: 'more like ${momentum.first.artist}',
       ),
       RecommendationCard(
@@ -74,7 +74,7 @@ class MockRecommendationService implements RecommendationService {
       RecommendationCard(
         id: 'genre_lane',
         title: '$genreLeader lane',
-        subtitle: 'AI stitched from one strong cluster',
+        subtitle: 'Built from one strong local cluster',
         description:
             'A focused card for the sound that currently dominates your library.',
         reason: 'Genre clustering is based on enriched local metadata.',

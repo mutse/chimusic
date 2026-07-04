@@ -1477,7 +1477,7 @@ class _SettingsPage extends StatelessWidget {
     return ListView(
       padding: EdgeInsets.only(bottom: bottomPad),
       children: [
-        // Profile
+        // Local settings summary
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
           child: Column(
