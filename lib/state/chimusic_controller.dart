@@ -1168,18 +1168,13 @@ class MusicAppController extends ChangeNotifier {
       final snapshot = await repository.load();
       _applyRepositorySnapshot(snapshot);
 
-      final restoredUser =
-          snapshot.userProfile ?? await _authService.restoreUser();
-      if (restoredUser != null) {
-        _userProfile = restoredUser;
-      }
+      _userProfile = null;
+      _hasUnlockedAiUpsell = false;
+      _aiSearchTrialsRemaining = 0;
+      _aiSearchResults = <Track>[];
+      _aiSearchSummary = null;
+      _isRunningAiSearch = false;
       _syncState = _buildDefaultSyncState();
-      await _refreshOnlineState(notifyAfterCompletion: false);
-      if (_userProfile != null) {
-        await _restoreCloudSnapshotIfAvailable(
-          applyRemoteWhenLibraryEmpty: true,
-        );
-      }
       notifyListeners();
     } catch (_) {
       _statusMessage =
@@ -1219,15 +1214,19 @@ class MusicAppController extends ChangeNotifier {
   }
 
   void setSearchMode(SearchMode mode) {
-    if (_searchMode == mode) {
+    const nextMode = SearchMode.standard;
+    if (_searchMode == nextMode &&
+        _aiSearchResults.isEmpty &&
+        _aiSearchSummary == null &&
+        !_isRunningAiSearch) {
       return;
     }
 
-    _searchMode = mode;
-    if (mode == SearchMode.standard) {
-      _aiSearchSummary = null;
-      _aiSearchResults = <Track>[];
-    }
+    _searchMode = nextMode;
+    _aiSearchSummary = null;
+    _aiSearchResults = <Track>[];
+    _isRunningAiSearch = false;
+    _hasUnlockedAiUpsell = false;
     notifyListeners();
     _persistSession();
   }
@@ -1278,7 +1277,6 @@ class MusicAppController extends ChangeNotifier {
     _statusMessage = 'Cleared saved playback history from ChiMusic.';
     notifyListeners();
     _persistSession();
-    _queueSyncIfSignedIn();
   }
 
   void clearStatusMessage() {
@@ -1338,12 +1336,12 @@ class MusicAppController extends ChangeNotifier {
       return;
     }
 
+    _searchMode = SearchMode.standard;
+    _aiSearchResults = <Track>[];
+    _aiSearchSummary = null;
+    _isRunningAiSearch = false;
+    _hasUnlockedAiUpsell = false;
     _rememberSearch(candidate);
-    if (_searchMode == SearchMode.ai) {
-      unawaited(runAiSearch(candidate));
-      return;
-    }
-
     notifyListeners();
     _persistSession();
   }
@@ -1398,12 +1396,12 @@ class MusicAppController extends ChangeNotifier {
     }
 
     _searchQuery = normalized;
+    _searchMode = SearchMode.standard;
+    _aiSearchResults = <Track>[];
+    _aiSearchSummary = null;
+    _isRunningAiSearch = false;
+    _hasUnlockedAiUpsell = false;
     _rememberSearch(normalized);
-    if (_searchMode == SearchMode.ai) {
-      unawaited(runAiSearch(normalized));
-      return;
-    }
-
     notifyListeners();
     _persistSession();
   }
@@ -1443,7 +1441,6 @@ class MusicAppController extends ChangeNotifier {
 
     notifyListeners();
     _persistSession();
-    _queueSyncIfSignedIn();
   }
 
   void toggleLikedTrack(String trackId) {
@@ -1456,7 +1453,6 @@ class MusicAppController extends ChangeNotifier {
     notifyListeners();
     _persistSession();
     unawaited(_refreshRecommendationContent());
-    _queueSyncIfSignedIn();
   }
 
   Future<void> signIn() async {
@@ -1860,7 +1856,6 @@ class MusicAppController extends ChangeNotifier {
     _syncState = _buildDefaultSyncState();
     notifyListeners();
     _persistSession();
-    _queueSyncIfSignedIn();
   }
 
   Future<void> seekToFraction(double fraction) async {
@@ -2885,10 +2880,10 @@ class MusicAppController extends ChangeNotifier {
       libraryFilter: _libraryFilter,
       librarySort: _librarySort,
       searchQuery: _searchQuery,
-      searchMode: _searchMode,
-      userProfile: _userProfile,
-      aiSearchTrialsRemaining: _aiSearchTrialsRemaining,
-      hasUnlockedAiUpsell: _hasUnlockedAiUpsell,
+      searchMode: SearchMode.standard,
+      userProfile: null,
+      aiSearchTrialsRemaining: 0,
+      hasUnlockedAiUpsell: false,
       themeMode: _themeMode,
       isShuffleEnabled: _isShuffleEnabled,
       isRepeatEnabled: _isRepeatEnabled,
@@ -3266,10 +3261,13 @@ class MusicAppController extends ChangeNotifier {
     _libraryFilter = snapshot.libraryFilter;
     _librarySort = snapshot.librarySort;
     _searchQuery = snapshot.searchQuery;
-    _searchMode = snapshot.searchMode;
-    _userProfile = snapshot.userProfile;
-    _aiSearchTrialsRemaining = snapshot.aiSearchTrialsRemaining;
-    _hasUnlockedAiUpsell = snapshot.hasUnlockedAiUpsell;
+    _searchMode = SearchMode.standard;
+    _userProfile = null;
+    _aiSearchTrialsRemaining = 0;
+    _hasUnlockedAiUpsell = false;
+    _aiSearchResults = <Track>[];
+    _aiSearchSummary = null;
+    _isRunningAiSearch = false;
     _themeMode = snapshot.themeMode;
     _isShuffleEnabled = snapshot.isShuffleEnabled;
     _isRepeatEnabled = snapshot.isRepeatEnabled;

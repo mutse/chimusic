@@ -1099,10 +1099,7 @@ class _FakeCloudSyncService implements CloudSyncService {
   @override
   Future<MusicCloudSnapshot?> restoreSnapshot(UserProfile user) async {
     restoreCalls += 1;
-    return MusicCloudSnapshot(
-      userId: user.id,
-      tracks: const <Track>[],
-    );
+    return MusicCloudSnapshot(userId: user.id, tracks: const <Track>[]);
   }
 
   @override
