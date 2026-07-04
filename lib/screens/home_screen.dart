@@ -114,9 +114,7 @@ class _HomeHeader extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               GlassIconButton(
-                icon: controller.isSignedIn
-                    ? Icons.account_circle_rounded
-                    : Icons.person_add_alt_rounded,
+                icon: Icons.settings_rounded,
                 onTap: () {
                   AppDetailsSheet.show(context);
                 },
@@ -162,19 +160,12 @@ class _HomeHeader extends StatelessWidget {
                     accent: const [Color(0xFF31231A), Color(0xFFF4A259)],
                   ),
                   MetricGlassCard(
-                    value: controller.membershipTier.label,
-                    label: controller.syncState.phase == SyncPhase.synced
-                        ? 'Synced'
-                        : controller.syncState.phase == SyncPhase.syncing
-                        ? 'Syncing'
-                        : 'Membership',
-                    icon: controller.hasPro
-                        ? Icons.workspace_premium_rounded
-                        : Icons.auto_awesome_rounded,
-                    onTap: () {
-                      AppDetailsSheet.show(context);
-                    },
-                    accent: const [Color(0xFF3B1E3A), Color(0xFF8B5CF6)],
+                    value: '${controller.albumCount}',
+                    label: 'Albums',
+                    icon: Icons.album_rounded,
+                    onTap: () =>
+                        controller.openLibraryFilter(LibraryFilter.albums),
+                    accent: const [Color(0xFF4B1212), Color(0xFFE53935)],
                   ),
                 ],
               );
@@ -378,10 +369,6 @@ class _HomeContent extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (!controller.isSignedIn || controller.shouldShowAiUpsell) ...[
-          _MembershipStatusRail(controller: controller),
-          const SizedBox(height: 18),
-        ],
         if (stageTrack != null && wide)
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -455,124 +442,6 @@ class _HomeContent extends StatelessWidget {
         const SizedBox(height: 30),
         _RecentSessionsSection(controller: controller),
       ],
-    );
-  }
-}
-
-class _MembershipStatusRail extends StatelessWidget {
-  const _MembershipStatusRail({required this.controller});
-
-  final MusicAppController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    final cards = <Widget>[
-      if (!controller.isSignedIn)
-        _StatusCallout(
-          title: 'Local-first playback is ready now',
-          body:
-              'Sign in later if you want cloud continuity and membership features. Your imported files and history already work on-device.',
-          actionLabel: 'Sign In',
-          onTap: () {
-            controller.signIn();
-          },
-          tintColors: const [Color(0xFF143845), Color(0xFF1D5366)],
-        ),
-      if (controller.shouldShowAiUpsell)
-        _StatusCallout(
-          title: 'AI search can stay optional',
-          body:
-              'You still keep the full local player. Pro only extends AI search, recaps, and continuity across devices.',
-          actionLabel: 'Upgrade',
-          onTap: () {
-            controller.upgradeToPro();
-          },
-          tintColors: const [Color(0xFF2C2042), Color(0xFF4A3270)],
-        ),
-    ];
-
-    if (cards.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    if (cards.length == 1 || !isWideWidth(context)) {
-      final stackedCards = cards
-          .expand((card) => [card, const SizedBox(height: 14)])
-          .toList();
-      stackedCards.removeLast();
-      return Column(children: stackedCards);
-    }
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        for (var index = 0; index < cards.length; index++) ...[
-          Expanded(child: cards[index]),
-          if (index != cards.length - 1) const SizedBox(width: 18),
-        ],
-      ],
-    );
-  }
-}
-
-class _StatusCallout extends StatelessWidget {
-  const _StatusCallout({
-    required this.title,
-    required this.body,
-    required this.actionLabel,
-    required this.onTap,
-    required this.tintColors,
-  });
-
-  final String title;
-  final String body;
-  final String actionLabel;
-  final VoidCallback onTap;
-  final List<Color> tintColors;
-
-  @override
-  Widget build(BuildContext context) {
-    return GlassPanel(
-      padding: const EdgeInsets.all(20),
-      borderRadius: BorderRadius.circular(32),
-      tintColors: tintColors,
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: Theme.of(context).textTheme.titleLarge),
-                const SizedBox(height: 8),
-                Text(
-                  body,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.68),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 14),
-          GlassPanel(
-            onTap: onTap,
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-            borderRadius: BorderRadius.circular(24),
-            tintColors: [
-              LiquidPalette.aqua.withValues(alpha: 0.96),
-              LiquidPalette.mint.withValues(alpha: 0.72),
-            ],
-            borderColor: LiquidPalette.mint.withValues(alpha: 0.22),
-            withShadow: false,
-            child: Text(
-              actionLabel,
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(color: LiquidPalette.ink),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
@@ -882,9 +751,10 @@ class _SessionInsightCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           _InsightRow(
-            label: 'Cloud sync',
-            value: controller.syncState.message,
-            icon: Icons.sync_rounded,
+            label: 'Local storage',
+            value:
+                'History, likes, saved collections, and queue state stay on this device.',
+            icon: Icons.storage_rounded,
           ),
           if (lastSession != null) ...[
             const SizedBox(height: 14),
