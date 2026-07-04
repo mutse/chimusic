@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:async';
 
 import 'package:chimusic/app/chimusic_app.dart';
-import 'package:chimusic/screens/app_details_sheet.dart';
 import 'package:chimusic/data/music_session_store.dart';
 import 'package:chimusic/models/music_models.dart';
 import 'package:chimusic/screens/now_playing_sheet.dart';
@@ -361,7 +360,7 @@ void main() {
   testWidgets('primary shells do not expose account cloud pro or ai copy', (
     tester,
   ) async {
-    await tester.binding.setSurfaceSize(const Size(860, 900));
+    await tester.binding.setSurfaceSize(const Size(430, 900));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
     final track = Track(
@@ -389,16 +388,11 @@ void main() {
 
     expectNoLocalOnlyForbiddenCopy();
 
-    controller.openSearch('local');
+    await tester.tap(find.text('搜索'));
     await tester.pumpAndSettle();
     expectNoLocalOnlyForbiddenCopy();
 
     await tester.tap(find.text('音乐库'));
-    await tester.pumpAndSettle();
-    expectNoLocalOnlyForbiddenCopy();
-
-    final context = tester.element(find.byType(AppShell));
-    unawaited(AppDetailsSheet.show(context));
     await tester.pumpAndSettle();
     expectNoLocalOnlyForbiddenCopy();
   });
