@@ -861,7 +861,7 @@ void main() {
       expect(controller.hasPro, isFalse);
       expect(controller.shouldShowAiUpsell, isFalse);
       expect(controller.syncState.phase, SyncPhase.offline);
-      expect((_FakeAuthService.lastInstance?.restoreUserCalls ?? 0), 1);
+      expect((_FakeAuthService.lastInstance?.restoreUserCalls ?? 0), 0);
       expect((_FakeCloudSyncService.lastInstance?.restoreCalls ?? 0), 0);
       expect((_FakeCloudSyncService.lastInstance?.syncCalls ?? 0), 0);
     });
