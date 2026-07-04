@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:async';
 
 import 'package:chimusic/app/chimusic_app.dart';
+import 'package:chimusic/screens/app_details_sheet.dart';
 import 'package:chimusic/data/music_session_store.dart';
 import 'package:chimusic/models/music_models.dart';
 import 'package:chimusic/screens/now_playing_sheet.dart';
@@ -356,6 +357,76 @@ void main() {
     expect(find.text('History'), findsOneWidget);
     expect(find.text('Blue Horizon'), findsWidgets);
   });
+
+  testWidgets('primary shells do not expose account cloud pro or ai copy', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(860, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final track = Track(
+      id: '/music/local/North Coast - Local Light.mp3',
+      filePath: '/music/local/North Coast - Local Light.mp3',
+      fileName: 'North Coast - Local Light.mp3',
+      folderPath: '/music/local',
+      title: 'Local Light',
+      artist: 'North Coast',
+      album: 'Local Sessions',
+      palette: const [Color(0xFFE53935), Color(0xFF3A1D1B), Color(0xFF111318)],
+      importedAt: DateTime(2026, 5, 6, 15),
+      duration: const Duration(minutes: 4),
+      fileExtension: 'mp3',
+    );
+    final controller = MusicAppController(
+      enableAudio: false,
+      initialTracks: [track],
+    );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(ChiMusicRoot(controller: controller));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+
+    expectNoLocalOnlyForbiddenCopy();
+
+    controller.openSearch('local');
+    await tester.pumpAndSettle();
+    expectNoLocalOnlyForbiddenCopy();
+
+    await tester.tap(find.text('音乐库'));
+    await tester.pumpAndSettle();
+    expectNoLocalOnlyForbiddenCopy();
+
+    final context = tester.element(find.byType(AppShell));
+    unawaited(AppDetailsSheet.show(context));
+    await tester.pumpAndSettle();
+    expectNoLocalOnlyForbiddenCopy();
+  });
+}
+
+void expectNoLocalOnlyForbiddenCopy() {
+  const forbiddenTerms = <String>[
+    'Sign In',
+    'Sign Out',
+    'sign-in',
+    'cloud sync',
+    'Cloud sync',
+    'Sync Library',
+    'Membership',
+    'Pro',
+    'Upgrade',
+    'AI search',
+    'AI Search',
+    'AI tries',
+    'Unlock Pro',
+    'comments',
+    'follows',
+    'social feed',
+  ];
+
+  for (final term in forbiddenTerms) {
+    expect(find.textContaining(term, findRichText: true), findsNothing);
+  }
 }
 
 class _BlockingSessionStore implements MusicSessionStore {

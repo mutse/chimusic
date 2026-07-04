@@ -790,8 +790,8 @@ void main() {
     );
 
     test(
-      'ai search uses free trials and surfaces intent-based matches',
-      () async {
+      'submitSearch always stays on local search and records recent terms',
+      () {
         final favoriteTrack = _track(
           folderPath: '/music/midnight',
           title: 'Night Drive',
@@ -800,41 +800,71 @@ void main() {
           duration: const Duration(minutes: 4, seconds: 10),
           importedAt: DateTime(2026, 5, 6, 21),
         );
-        final otherTrack = _track(
-          folderPath: '/music/daylight',
-          title: 'Morning Tape',
-          artist: 'Signal Bloom',
-          album: 'Daylight',
-          duration: const Duration(minutes: 3, seconds: 18),
-          importedAt: DateTime(2026, 5, 6, 9),
-        );
         final controller = MusicAppController(
           enableAudio: false,
-          initialTracks: [favoriteTrack, otherTrack],
-          initialLikedTrackIds: {favoriteTrack.id},
+          initialTracks: [favoriteTrack],
+          initialSearchMode: SearchMode.ai,
+          initialAiSearchTrialsRemaining: 0,
         );
         addTearDown(controller.dispose);
 
-        controller.setSearchMode(SearchMode.ai);
-        controller.updateSearchQuery('favorite');
-        await controller.runAiSearch();
+        controller.updateSearchQuery('night');
+        controller.submitSearch();
 
-        expect(controller.aiSearchResults.first.id, favoriteTrack.id);
-        expect(controller.aiSearchTrialsRemaining, 1);
-        expect(controller.shouldShowAiUpsell, isTrue);
+        expect(controller.searchMode, SearchMode.standard);
+        expect(controller.recentSearches.first, 'night');
+        expect(controller.searchTrackResults.single.id, favoriteTrack.id);
+        expect(controller.aiSearchResults, isEmpty);
+        expect(controller.shouldShowAiUpsell, isFalse);
       },
     );
 
-    test('upgradeToPro unlocks unlimited AI access', () async {
-      final controller = MusicAppController(enableAudio: false);
+    test('restoreSession ignores persisted user and cloud state', () async {
+      final track = _track(
+        folderPath: '/music/local',
+        title: 'Offline Song',
+        artist: 'Local Artist',
+        album: 'Local Album',
+        duration: const Duration(minutes: 3),
+        importedAt: DateTime(2026, 5, 6, 12),
+      );
+      final store = _FakeRepository(
+        snapshot: MusicRepositorySnapshot(
+          tracks: [track],
+          playbackSession: PlaybackSessionState(
+            queueTrackIds: [track.id],
+            currentTrackId: track.id,
+            currentCollectionId: 'all_tracks',
+            position: const Duration(seconds: 42),
+          ),
+          userProfile: UserProfile(
+            id: 'legacy-user',
+            name: 'Legacy User',
+            email: 'legacy@example.com',
+            avatarSeed: 'legacy-user',
+            membershipTier: MembershipTier.pro,
+            signedInAt: DateTime(2026, 5, 1, 8),
+          ),
+          aiSearchTrialsRemaining: 0,
+          hasUnlockedAiUpsell: true,
+        ),
+      );
+      final controller = MusicAppController(
+        enableAudio: false,
+        repository: store,
+      );
       addTearDown(controller.dispose);
 
-      await controller.upgradeToPro();
+      await controller.restoreSession();
+      await pumpEventQueue();
 
-      expect(controller.isSignedIn, isTrue);
-      expect(controller.hasPro, isTrue);
-      expect(controller.membershipTier, MembershipTier.pro);
-      expect(controller.canUseAiSearch, isTrue);
+      expect(controller.importedTrackCount, 1);
+      expect(controller.currentTrack?.id, track.id);
+      expect(controller.position, const Duration(seconds: 42));
+      expect(controller.isSignedIn, isFalse);
+      expect(controller.hasPro, isFalse);
+      expect(controller.shouldShowAiUpsell, isFalse);
+      expect(controller.syncState.phase, SyncPhase.offline);
     });
 
     test(
@@ -994,6 +1024,24 @@ class _FakeSessionStore implements MusicSessionStore {
   Future<void> save(MusicSessionSnapshot snapshot) async {
     lastSaved = snapshot;
   }
+}
+
+class _FakeRepository implements MusicRepository {
+  _FakeRepository({required this.snapshot});
+
+  MusicRepositorySnapshot snapshot;
+  MusicRepositorySnapshot? lastSaved;
+
+  @override
+  Future<MusicRepositorySnapshot> load() async => snapshot;
+
+  @override
+  Future<void> save(MusicRepositorySnapshot snapshot) async {
+    lastSaved = snapshot;
+  }
+
+  @override
+  Future<void> close() async {}
 }
 
 class _BlockingSessionStore implements MusicSessionStore {
