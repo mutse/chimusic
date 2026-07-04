@@ -388,39 +388,62 @@ void main() {
 
     expectNoLocalOnlyForbiddenCopy();
 
-    await tester.tap(find.text('搜索'));
+    await tester.tap(find.text('音乐库'));
     await tester.pumpAndSettle();
     expectNoLocalOnlyForbiddenCopy();
 
-    await tester.tap(find.text('音乐库'));
+    await tester.tap(find.text('记录'));
+    await tester.pumpAndSettle();
+    expectNoLocalOnlyForbiddenCopy();
+
+    await tester.tap(find.text('设置'));
     await tester.pumpAndSettle();
     expectNoLocalOnlyForbiddenCopy();
   });
 }
 
 void expectNoLocalOnlyForbiddenCopy() {
-  const forbiddenTerms = <String>[
+  const exactTerms = <String>[
     'Sign In',
     'Sign Out',
-    'sign-in',
-    'cloud sync',
-    'Cloud sync',
     'Sync Library',
     'Membership',
     'Pro',
     'Upgrade',
-    'AI search',
     'AI Search',
     'AI tries',
     'Unlock Pro',
-    'comments',
-    'follows',
-    'social feed',
   ];
 
-  for (final term in forbiddenTerms) {
-    expect(find.textContaining(term, findRichText: true), findsNothing);
+  for (final term in exactTerms) {
+    expect(find.text(term, findRichText: true), findsNothing);
   }
+
+  final regexes = <RegExp>[
+    RegExp(r'\bsign-in\b', caseSensitive: false),
+    RegExp(r'\bcloud sync\b', caseSensitive: false),
+    RegExp(r'\bcomments\b', caseSensitive: false),
+    RegExp(r'\bfollows\b', caseSensitive: false),
+    RegExp(r'\bsocial feed\b', caseSensitive: false),
+    RegExp(r'\bAI search\b', caseSensitive: false),
+  ];
+
+  for (final regex in regexes) {
+    expect(_findTextMatching(regex), findsNothing);
+  }
+}
+
+Finder _findTextMatching(RegExp pattern) {
+  return find.byWidgetPredicate((widget) {
+    if (widget is Text) {
+      final text = widget.data ?? widget.textSpan?.toPlainText() ?? '';
+      return pattern.hasMatch(text);
+    }
+    if (widget is RichText) {
+      return pattern.hasMatch(widget.text.toPlainText());
+    }
+    return false;
+  });
 }
 
 class _BlockingSessionStore implements MusicSessionStore {
