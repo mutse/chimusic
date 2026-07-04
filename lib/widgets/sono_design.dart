@@ -296,9 +296,7 @@ class _SonoArtPainter extends CustomPainter {
             fontSize: sz * 0.3,
             fontWeight: FontWeight.w300,
             height: 1.0,
-            color: isLight
-                ? const Color(0x852C2018)
-                : const Color(0xADFFFFFF),
+            color: isLight ? const Color(0x852C2018) : const Color(0xADFFFFFF),
           ),
         ),
         textAlign: TextAlign.center,
