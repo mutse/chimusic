@@ -75,12 +75,7 @@ class _SearchScreenState extends State<SearchScreen> {
                             style: Theme.of(context).textTheme.displaySmall,
                           ),
                         ),
-                        GlassPill(
-                          label: controller.searchMode == SearchMode.ai
-                              ? 'AI Search'
-                              : 'On Device',
-                          selected: controller.searchMode == SearchMode.ai,
-                        ),
+                        const GlassPill(label: '本地搜索'),
                       ],
                     ),
                     const SizedBox(height: 14),
@@ -93,11 +88,7 @@ class _SearchScreenState extends State<SearchScreen> {
                         ),
                         GlassPill(label: '${controller.artistCount} artists'),
                         GlassPill(label: '${controller.albumCount} albums'),
-                        GlassPill(
-                          label: controller.hasPro
-                              ? 'Pro AI'
-                              : '${controller.aiSearchTrialsRemaining} AI tries left',
-                        ),
+                        const GlassPill(label: '离线可用'),
                       ],
                     ),
                   ],
@@ -120,15 +111,11 @@ class _SearchScreenState extends State<SearchScreen> {
                 EmptyMusicState(
                   title: 'Nothing to search yet',
                   body:
-                      'Import local files first, then search by track title, artist, album, folder, genre, year, or AI intent.',
+                      'Import local files first, then search by track title, artist, album, folder, genre, or year.',
                   controller: controller,
                   icon: Icons.search_off_rounded,
                 )
               else ...[
-                if (controller.searchMode == SearchMode.ai) ...[
-                  _AiSearchStateCard(controller: controller),
-                  const SizedBox(height: 24),
-                ],
                 if (controller.recentSearches.isNotEmpty) ...[
                   SectionCard(
                     title: 'Recent Searches',
@@ -184,27 +171,16 @@ class _SearchScreenState extends State<SearchScreen> {
                 if (hasQuery && topTrack != null) ...[
                   const SizedBox(height: 30),
                   SectionCard(
-                    title: controller.searchMode == SearchMode.ai
-                        ? 'Best AI Match'
-                        : 'Top Result',
+                    title: 'Top Result',
                     child: _TopResultCard(track: topTrack),
                   ),
                 ],
                 const SizedBox(height: 30),
                 SectionCard(
-                  title: controller.searchMode == SearchMode.ai
-                      ? 'AI Matches'
-                      : hasQuery
-                      ? 'Tracks'
-                      : 'Recent Tracks',
-                  subtitle: controller.searchMode == SearchMode.ai
-                      ? 'These results are ranked from descriptive intent, genre, favorites, and recent behavior.'
-                      : null,
+                  title: hasQuery ? 'Tracks' : 'Recent Tracks',
                   child: activeTracks.isEmpty
-                      ? _SearchPlaceholder(
-                          message: controller.searchMode == SearchMode.ai
-                              ? 'AI did not find a strong library match yet.'
-                              : 'No matching tracks were found.',
+                      ? const _SearchPlaceholder(
+                          message: 'No matching tracks were found.',
                         )
                       : Column(
                           children: [
@@ -236,11 +212,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 const SizedBox(height: 30),
                 SectionCard(
                   title: 'Collections',
-                  child:
-                      (controller.searchMode == SearchMode.ai
-                              ? controller.aiSearchCollections
-                              : controller.searchCollectionResults)
-                          .isEmpty
+                  child: controller.searchCollectionResults.isEmpty
                       ? const _SearchPlaceholder(
                           message: 'No matching collections were found.',
                         )
@@ -249,9 +221,7 @@ class _SearchScreenState extends State<SearchScreen> {
                           runSpacing: 14,
                           children: [
                             for (final collection
-                                in controller.searchMode == SearchMode.ai
-                                    ? controller.aiSearchCollections
-                                    : controller.searchCollectionResults)
+                                in controller.searchCollectionResults)
                               _SearchCollectionCard(collection: collection),
                           ],
                         ),
@@ -274,7 +244,6 @@ class _SearchHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasQuery = controller.searchQuery.trim().isNotEmpty;
-    final wide = isWideWidth(context);
 
     return GlassPanel(
       padding: const EdgeInsets.all(22),
@@ -287,25 +256,8 @@ class _SearchHero extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            controller.searchMode == SearchMode.ai
-                ? (hasQuery
-                      ? 'Ask your library anything'
-                      : 'Describe what you want')
-                : (hasQuery ? 'Live results' : 'Start with a search'),
+            hasQuery ? '本地结果' : '搜索本地音乐',
             style: Theme.of(context).textTheme.titleLarge,
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              for (final mode in SearchMode.values)
-                GlassPill(
-                  label: mode.label,
-                  selected: controller.searchMode == mode,
-                  onTap: () => controller.setSearchMode(mode),
-                ),
-            ],
           ),
           const SizedBox(height: 16),
           GlassPanel(
@@ -331,9 +283,7 @@ class _SearchHero extends StatelessWidget {
                     textInputAction: TextInputAction.search,
                     style: Theme.of(context).textTheme.bodyLarge,
                     decoration: InputDecoration.collapsed(
-                      hintText: controller.searchMode == SearchMode.ai
-                          ? 'Try "late night electronic tracks" or "favorites for focus"'
-                          : 'Search tracks, artists, albums, folders, or formats',
+                      hintText: '搜索歌曲、歌手、专辑、文件夹或格式',
                       hintStyle: Theme.of(context).textTheme.bodyLarge
                           ?.copyWith(
                             color: Colors.white.withValues(alpha: 0.42),
@@ -357,43 +307,35 @@ class _SearchHero extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
-          if (wide)
-            Row(
+          if (isWideWidth(context))
+            const Row(
               children: [
                 Expanded(
                   child: _SearchHeroHint(
                     icon: Icons.library_music_rounded,
-                    label: controller.searchMode == SearchMode.ai
-                        ? 'AI uses your library structure, favorites, and recent behavior.'
-                        : 'Standard search stays available offline and works instantly.',
+                    label: '搜索只读取本机音乐资料库，离线也能立即使用。',
                   ),
                 ),
-                const SizedBox(width: 12),
+                SizedBox(width: 12),
                 Expanded(
                   child: _SearchHeroHint(
-                    icon: Icons.workspace_premium_rounded,
-                    label: controller.hasPro
-                        ? 'Pro keeps AI search unlimited.'
-                        : '${controller.aiSearchTrialsRemaining} free AI tries remain before Pro upsell.',
+                    icon: Icons.history_rounded,
+                    label: '最近搜索会保存在本机，方便继续找歌。',
                   ),
                 ),
               ],
             )
           else
-            Column(
+            const Column(
               children: [
                 _SearchHeroHint(
                   icon: Icons.library_music_rounded,
-                  label: controller.searchMode == SearchMode.ai
-                      ? 'AI uses your library structure, favorites, and recent behavior.'
-                      : 'Standard search stays available offline and works instantly.',
+                  label: '搜索只读取本机音乐资料库，离线也能立即使用。',
                 ),
-                const SizedBox(height: 12),
+                SizedBox(height: 12),
                 _SearchHeroHint(
-                  icon: Icons.workspace_premium_rounded,
-                  label: controller.hasPro
-                      ? 'Pro keeps AI search unlimited.'
-                      : '${controller.aiSearchTrialsRemaining} free AI tries remain before Pro upsell.',
+                  icon: Icons.history_rounded,
+                  label: '最近搜索会保存在本机，方便继续找歌。',
                 ),
               ],
             ),
@@ -431,75 +373,6 @@ class _SearchHeroHint extends StatelessWidget {
               ),
             ),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _AiSearchStateCard extends StatelessWidget {
-  const _AiSearchStateCard({required this.controller});
-
-  final MusicAppController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    return GlassPanel(
-      padding: const EdgeInsets.all(18),
-      borderRadius: BorderRadius.circular(30),
-      tintColors: controller.canUseAiSearch
-          ? const [Color(0xFF182F48), Color(0xFF214C76)]
-          : const [Color(0xFF392042), Color(0xFF5A3170)],
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  controller.canUseAiSearch
-                      ? 'AI search is ready'
-                      : 'AI search is paused on Free',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-              ),
-              GlassPill(
-                label: controller.hasPro
-                    ? 'Pro'
-                    : '${controller.aiSearchTrialsRemaining} tries left',
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            controller.aiSearchSummary ??
-                'Use natural language to describe mood, context, genre, time of day, or the kind of songs you want next.',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Colors.white.withValues(alpha: 0.7),
-            ),
-          ),
-          if (!controller.canUseAiSearch) ...[
-            const SizedBox(height: 14),
-            GlassPanel(
-              onTap: () async {
-                await controller.upgradeToPro();
-              },
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              borderRadius: BorderRadius.circular(22),
-              tintColors: [
-                LiquidPalette.aqua.withValues(alpha: 0.96),
-                LiquidPalette.mint.withValues(alpha: 0.72),
-              ],
-              borderColor: LiquidPalette.mint.withValues(alpha: 0.22),
-              withShadow: false,
-              child: Text(
-                'Unlock Pro',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(color: LiquidPalette.ink),
-              ),
-            ),
-          ],
         ],
       ),
     );

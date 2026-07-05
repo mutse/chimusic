@@ -433,7 +433,7 @@ class _CollectionInsights extends StatelessWidget {
               const SizedBox(height: 10),
               Text(
                 collection.kind == MusicCollectionKind.smartPlaylist
-                    ? 'This smart playlist is generated from your local library signals. Save it, play it as one queue, or jump into AI Search with the title prefilled.'
+                    ? 'This smart playlist is generated from local library signals. Save it or play it as one queue.'
                     : 'This detail page is tied to your live local library. Save it, play it as one queue, or bounce back into Search with the collection title prefilled.',
                 style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                   color: Colors.white.withValues(alpha: 0.68),

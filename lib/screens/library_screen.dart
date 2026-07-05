@@ -258,13 +258,9 @@ class _LibraryContextCard extends StatelessWidget {
             spacing: 10,
             runSpacing: 10,
             children: [
-              GlassPill(label: controller.membershipTier.label),
-              GlassPill(label: controller.syncState.phase.name),
-              if (controller.syncState.lastSyncedAt != null)
-                GlassPill(
-                  label:
-                      'Updated ${formatRelativePlayTime(controller.syncState.lastSyncedAt!)}',
-                ),
+              GlassPill(label: '${controller.favoriteTracks.length} liked'),
+              GlassPill(label: '${controller.savedCollectionCount} saved'),
+              GlassPill(label: '${controller.recentSearches.length} searches'),
             ],
           ),
         ],

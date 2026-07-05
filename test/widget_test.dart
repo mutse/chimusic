@@ -356,6 +356,94 @@ void main() {
     expect(find.text('History'), findsOneWidget);
     expect(find.text('Blue Horizon'), findsWidgets);
   });
+
+  testWidgets('primary shells do not expose account cloud pro or ai copy', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(430, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final track = Track(
+      id: '/music/local/North Coast - Local Light.mp3',
+      filePath: '/music/local/North Coast - Local Light.mp3',
+      fileName: 'North Coast - Local Light.mp3',
+      folderPath: '/music/local',
+      title: 'Local Light',
+      artist: 'North Coast',
+      album: 'Local Sessions',
+      palette: const [Color(0xFFE53935), Color(0xFF3A1D1B), Color(0xFF111318)],
+      importedAt: DateTime(2026, 5, 6, 15),
+      duration: const Duration(minutes: 4),
+      fileExtension: 'mp3',
+    );
+    final controller = MusicAppController(
+      enableAudio: false,
+      initialTracks: [track],
+    );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(ChiMusicRoot(controller: controller));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+
+    expectNoLocalOnlyForbiddenCopy();
+
+    await tester.tap(find.text('音乐库'));
+    await tester.pumpAndSettle();
+    expectNoLocalOnlyForbiddenCopy();
+
+    await tester.tap(find.text('记录'));
+    await tester.pumpAndSettle();
+    expectNoLocalOnlyForbiddenCopy();
+
+    await tester.tap(find.text('设置'));
+    await tester.pumpAndSettle();
+    expectNoLocalOnlyForbiddenCopy();
+  });
+}
+
+void expectNoLocalOnlyForbiddenCopy() {
+  const exactTerms = <String>[
+    'Sign In',
+    'Sign Out',
+    'Sync Library',
+    'Membership',
+    'Pro',
+    'Upgrade',
+    'AI Search',
+    'AI tries',
+    'Unlock Pro',
+  ];
+
+  for (final term in exactTerms) {
+    expect(find.text(term, findRichText: true), findsNothing);
+  }
+
+  final regexes = <RegExp>[
+    RegExp(r'\bsign-in\b', caseSensitive: false),
+    RegExp(r'\bcloud sync\b', caseSensitive: false),
+    RegExp(r'\bcomments\b', caseSensitive: false),
+    RegExp(r'\bfollows\b', caseSensitive: false),
+    RegExp(r'\bsocial feed\b', caseSensitive: false),
+    RegExp(r'\bAI search\b', caseSensitive: false),
+  ];
+
+  for (final regex in regexes) {
+    expect(_findTextMatching(regex), findsNothing);
+  }
+}
+
+Finder _findTextMatching(RegExp pattern) {
+  return find.byWidgetPredicate((widget) {
+    if (widget is Text) {
+      final text = widget.data ?? widget.textSpan?.toPlainText() ?? '';
+      return pattern.hasMatch(text);
+    }
+    if (widget is RichText) {
+      return pattern.hasMatch(widget.text.toPlainText());
+    }
+    return false;
+  });
 }
 
 class _BlockingSessionStore implements MusicSessionStore {

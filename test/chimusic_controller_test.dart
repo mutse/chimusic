@@ -4,6 +4,8 @@ import 'package:chimusic/data/music_repository.dart';
 import 'package:chimusic/data/music_session_store.dart';
 import 'package:chimusic/models/music_models.dart';
 import 'package:chimusic/state/chimusic_controller.dart';
+import 'package:chimusic/services/auth_service.dart';
+import 'package:chimusic/services/cloud_sync_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -790,8 +792,8 @@ void main() {
     );
 
     test(
-      'ai search uses free trials and surfaces intent-based matches',
-      () async {
+      'submitSearch always stays on local search and records recent terms',
+      () {
         final favoriteTrack = _track(
           folderPath: '/music/midnight',
           title: 'Night Drive',
@@ -800,41 +802,68 @@ void main() {
           duration: const Duration(minutes: 4, seconds: 10),
           importedAt: DateTime(2026, 5, 6, 21),
         );
-        final otherTrack = _track(
-          folderPath: '/music/daylight',
-          title: 'Morning Tape',
-          artist: 'Signal Bloom',
-          album: 'Daylight',
-          duration: const Duration(minutes: 3, seconds: 18),
-          importedAt: DateTime(2026, 5, 6, 9),
-        );
         final controller = MusicAppController(
           enableAudio: false,
-          initialTracks: [favoriteTrack, otherTrack],
-          initialLikedTrackIds: {favoriteTrack.id},
+          initialTracks: [favoriteTrack],
+          initialSearchMode: SearchMode.ai,
+          initialAiSearchTrialsRemaining: 0,
         );
         addTearDown(controller.dispose);
 
-        controller.setSearchMode(SearchMode.ai);
-        controller.updateSearchQuery('favorite');
-        await controller.runAiSearch();
+        controller.updateSearchQuery('night');
+        controller.submitSearch();
 
-        expect(controller.aiSearchResults.first.id, favoriteTrack.id);
-        expect(controller.aiSearchTrialsRemaining, 1);
-        expect(controller.shouldShowAiUpsell, isTrue);
+        expect(controller.searchMode, SearchMode.standard);
+        expect(controller.recentSearches.first, 'night');
+        expect(controller.searchTrackResults.single.id, favoriteTrack.id);
+        expect(controller.aiSearchResults, isEmpty);
+        expect(controller.shouldShowAiUpsell, isFalse);
       },
     );
 
-    test('upgradeToPro unlocks unlimited AI access', () async {
-      final controller = MusicAppController(enableAudio: false);
+    test('restoreSession ignores persisted user and cloud state', () async {
+      final track = _track(
+        folderPath: '/music/local',
+        title: 'Offline Song',
+        artist: 'Local Artist',
+        album: 'Local Album',
+        duration: const Duration(minutes: 3),
+        importedAt: DateTime(2026, 5, 6, 12),
+      );
+      final store = _FakeRepository(
+        snapshot: MusicRepositorySnapshot(
+          tracks: [track],
+          playbackSession: PlaybackSessionState(
+            queueTrackIds: [track.id],
+            currentTrackId: track.id,
+            currentCollectionId: 'all_tracks',
+            position: const Duration(seconds: 42),
+          ),
+          aiSearchTrialsRemaining: 0,
+          hasUnlockedAiUpsell: true,
+        ),
+      );
+      final controller = MusicAppController(
+        enableAudio: false,
+        repository: store,
+        authService: _FakeAuthService(),
+        cloudSyncService: _FakeCloudSyncService(),
+      );
       addTearDown(controller.dispose);
 
-      await controller.upgradeToPro();
+      await controller.restoreSession();
+      await pumpEventQueue();
 
-      expect(controller.isSignedIn, isTrue);
-      expect(controller.hasPro, isTrue);
-      expect(controller.membershipTier, MembershipTier.pro);
-      expect(controller.canUseAiSearch, isTrue);
+      expect(controller.importedTrackCount, 1);
+      expect(controller.currentTrack?.id, track.id);
+      expect(controller.position, const Duration(seconds: 42));
+      expect(controller.isSignedIn, isFalse);
+      expect(controller.hasPro, isFalse);
+      expect(controller.shouldShowAiUpsell, isFalse);
+      expect(controller.syncState.phase, SyncPhase.offline);
+      expect((_FakeAuthService.lastInstance?.restoreUserCalls ?? 0), 0);
+      expect((_FakeCloudSyncService.lastInstance?.restoreCalls ?? 0), 0);
+      expect((_FakeCloudSyncService.lastInstance?.syncCalls ?? 0), 0);
     });
 
     test(
@@ -993,6 +1022,97 @@ class _FakeSessionStore implements MusicSessionStore {
   @override
   Future<void> save(MusicSessionSnapshot snapshot) async {
     lastSaved = snapshot;
+  }
+}
+
+class _FakeRepository implements MusicRepository {
+  _FakeRepository({required this.snapshot});
+
+  MusicRepositorySnapshot snapshot;
+  MusicRepositorySnapshot? lastSaved;
+
+  @override
+  Future<MusicRepositorySnapshot> load() async => snapshot;
+
+  @override
+  Future<void> save(MusicRepositorySnapshot snapshot) async {
+    lastSaved = snapshot;
+  }
+
+  @override
+  Future<void> close() async {}
+}
+
+class _FakeAuthService implements AuthService {
+  _FakeAuthService() {
+    lastInstance = this;
+  }
+
+  static _FakeAuthService? lastInstance;
+
+  int restoreUserCalls = 0;
+  int signInCalls = 0;
+  int signOutCalls = 0;
+
+  @override
+  Future<UserProfile?> restoreUser() async {
+    restoreUserCalls += 1;
+    return UserProfile(
+      id: 'legacy-auth-user',
+      name: 'Legacy Auth User',
+      email: 'legacy-auth@example.com',
+      avatarSeed: 'legacy-auth-user',
+      membershipTier: MembershipTier.pro,
+      signedInAt: DateTime(2026, 5, 1, 8),
+    );
+  }
+
+  @override
+  Future<UserProfile> signIn() async {
+    signInCalls += 1;
+    return UserProfile(
+      id: 'signed-in-user',
+      name: 'Signed In User',
+      email: 'signed-in@example.com',
+      avatarSeed: 'signed-in-user',
+      membershipTier: MembershipTier.free,
+      signedInAt: DateTime(2026, 5, 1, 8),
+    );
+  }
+
+  @override
+  Future<void> signOut() async {
+    signOutCalls += 1;
+  }
+}
+
+class _FakeCloudSyncService implements CloudSyncService {
+  _FakeCloudSyncService() {
+    lastInstance = this;
+  }
+
+  static _FakeCloudSyncService? lastInstance;
+
+  int restoreCalls = 0;
+  int syncCalls = 0;
+
+  @override
+  Future<MusicCloudSnapshot?> restoreSnapshot(UserProfile user) async {
+    restoreCalls += 1;
+    return MusicCloudSnapshot(userId: user.id, tracks: const <Track>[]);
+  }
+
+  @override
+  Future<SyncState> syncSnapshot(
+    UserProfile user,
+    MusicCloudSnapshot snapshot,
+  ) async {
+    syncCalls += 1;
+    return SyncState(
+      phase: SyncPhase.synced,
+      message: 'synced',
+      lastSyncedAt: DateTime(2026, 5, 8, 12),
+    );
   }
 }
 
