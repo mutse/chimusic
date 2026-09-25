@@ -1,0 +1,78 @@
+<h2>Implementation Approach</h2>
+<p class="subtitle">We are building option A from the previous screen: a local-first NetEase Cloud Music-style player, across mobile and desktop, with no account, login, cloud sync, membership, comments, follows, or social feed.</p>
+
+<div class="options">
+  <div class="option" data-choice="approach-a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Recommended: Product Cleanup + NetEase-Style Local Discovery</h3>
+      <p>Keep the current Flutter architecture and playback/storage foundation. Remove visible account, cloud, Pro, and AI surfaces. Retitle tabs and cards around NetEase-like local experiences: Discover, Search, Library, Now Playing, Daily Mix, Recently Played, Albums, Artists, Favorites, and Play History.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="approach-b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Visual Rewrite First</h3>
+      <p>Rebuild the major screens to look closer to NetEase Cloud Music before cleaning internals. This gives a dramatic UI change quickly, but leaves account/cloud/AI concepts tangled in state and tests for longer.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="approach-c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Deep Domain Refactor First</h3>
+      <p>Remove user/cloud/AI models and repository fields first, then rebuild UI. This is architecturally tidy, but the app may stay visually unchanged for a while and the blast radius is larger.</p>
+    </div>
+  </div>
+</div>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">Target Mobile Structure</div>
+    <div class="mockup-body">
+      <div class="mock-nav">Discover · Search · Library</div>
+      <div class="placeholder" style="height:70px;margin-top:12px">Red-accent daily local mix</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px">
+        <div class="placeholder" style="height:48px">Daily</div>
+        <div class="placeholder" style="height:48px">FM</div>
+        <div class="placeholder" style="height:48px">History</div>
+        <div class="placeholder" style="height:48px">Import</div>
+      </div>
+      <div class="placeholder" style="height:84px;margin-top:10px">Recommended playlists from local tags</div>
+      <div class="placeholder" style="height:54px;margin-top:10px">Floating mini player</div>
+    </div>
+  </div>
+  <div class="mockup">
+    <div class="mockup-header">Target Desktop Structure</div>
+    <div class="mockup-body">
+      <div style="display:grid;grid-template-columns:160px 1fr 240px;gap:12px">
+        <div class="mock-sidebar">Discover<br>Search<br>Library<br>History<br>Import</div>
+        <div>
+          <div class="placeholder" style="height:78px">Local discovery header</div>
+          <div class="placeholder" style="height:96px;margin-top:10px">Albums / artists / playlists grid</div>
+        </div>
+        <div class="placeholder" style="height:184px">Queue + Now playing</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="pros-cons">
+  <div class="pros">
+    <h4>Why A</h4>
+    <ul>
+      <li>Matches the existing controller, repository, and tests.</li>
+      <li>Delivers visible product progress quickly.</li>
+      <li>Keeps local playback history as a first-class feature.</li>
+      <li>Lets deeper model cleanup happen safely after behavior is covered.</li>
+    </ul>
+  </div>
+  <div class="cons">
+    <h4>Tradeoff</h4>
+    <ul>
+      <li>Some unused service files may remain briefly until follow-up cleanup tasks remove them.</li>
+      <li>The first pass prioritizes user-facing correctness over perfect internal minimalism.</li>
+    </ul>
+  </div>
+</div>

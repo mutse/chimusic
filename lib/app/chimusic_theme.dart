@@ -7,8 +7,8 @@ class LiquidPalette {
   static const Color surfaceRaised = Color(0xFF181B22);
   static const Color surfaceSoft = Color(0xFF232834);
   static const Color deepCyan = Color(0xFF103722);
-  static const Color aqua = Color(0xFF1ED760);
-  static const Color mint = Color(0xFF7BF2A5);
+  static const Color aqua = Color(0xFFAFEAE3);
+  static const Color mint = Color(0xFFC4F6EE);
   static const Color coral = Color(0xFFF4A259);
   static const Color moon = Color(0xFFB9C4D2);
   static const Color softWhite = Color(0xFFF7F9FC);
@@ -27,8 +27,8 @@ ThemeData buildChiMusicTheme({Brightness brightness = Brightness.dark}) {
           onSurface: LiquidPalette.softWhite,
         )
       : const ColorScheme.light(
-          primary: Color(0xFFC07A92),
-          secondary: Color(0xFFD3A9B4),
+          primary: Color(0xFFA64927),
+          secondary: Color(0xFFB85C39),
           tertiary: Color(0xFFB8864D),
           surface: Color(0xFFEDE7DA),
           onPrimary: Color(0xFFF8F3EA),
@@ -108,7 +108,7 @@ ThemeData buildChiMusicTheme({Brightness brightness = Brightness.dark}) {
     sliderTheme: SliderThemeData(
       overlayShape: const RoundSliderOverlayShape(overlayRadius: 18),
       thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-      activeTrackColor: isDark ? LiquidPalette.aqua : const Color(0xFFC07A92),
+      activeTrackColor: isDark ? LiquidPalette.aqua : const Color(0xFFA64927),
       inactiveTrackColor: isDark
           ? const Color(0x33232A36)
           : const Color(0x332C2018),

@@ -12,6 +12,8 @@ $ flutter test
 
 ## Product And Design Notes
 
+- Immersive dark/light player: [design and usage](docs/immersive-themes.md)
+
 - Product scope: [docs/product_plan.md](docs/product_plan.md)
 - UI system: [docs/liquid_glass_ui.md](docs/liquid_glass_ui.md)
 - GitHub CI/CD: [docs/github_cicd.md](docs/github_cicd.md)
