@@ -17,6 +17,7 @@ import '../data/music_repository.dart';
 import '../data/music_session_store.dart';
 import '../models/music_models.dart';
 import '../services/auth_service.dart';
+import '../services/netease_service.dart';
 import '../services/cloud_sync_service.dart';
 import '../services/metadata_enrichment_service.dart';
 import '../services/recommendation_service.dart';
@@ -29,6 +30,7 @@ class MusicAppController extends ChangeNotifier {
     MusicRepository? repository,
     MusicSessionStore? sessionStore,
     AuthService? authService,
+    NeteaseService? neteaseService,
     MetadataEnrichmentService? metadataEnrichmentService,
     RecommendationService? recommendationService,
     CloudSyncService? cloudSyncService,
@@ -59,6 +61,7 @@ class MusicAppController extends ChangeNotifier {
            (sessionStore == null
                ? null
                : LegacySessionStoreRepository(sessionStore)),
+       netease = neteaseService ?? NeteaseService(),
        _authService = authService ?? MockAuthService(),
        _metadataEnrichmentService =
            metadataEnrichmentService ?? MockMetadataEnrichmentService(),
@@ -69,6 +72,7 @@ class MusicAppController extends ChangeNotifier {
        _appleMediaAccessChannel =
            appleMediaAccessChannel ?? AppleMediaAccessChannel(),
        _player = enableAudio ? (player ?? AudioPlayer()) : null {
+    netease.addListener(_notifyIfAlive);
     _tracks = List<Track>.from(initialTracks);
     for (final source in initialTrackSources) {
       _trackSourcesByTrackId[source.trackId] = source;
@@ -97,9 +101,49 @@ class MusicAppController extends ChangeNotifier {
     if (_player case final player?) {
       unawaited(player.setVolume(_volume));
       unawaited(
-        player.setLoopMode(_isRepeatEnabled ? LoopMode.all : LoopMode.off),
+        player.setLoopMode(
+          _isRepeatEnabled && !_usesOnlineQueue ? LoopMode.all : LoopMode.off,
+        ),
       );
     }
+  }
+
+  final NeteaseService netease;
+  bool get _usesOnlineQueue => _queue.any((track) => track.isNetease);
+  bool _onlineSourceLoaded = false;
+  int _playbackGeneration = 0;
+
+  Future<void> syncNeteaseLibrary() async {
+    if (!await netease.syncLibrary() || _isDisposed) return;
+    final onlineIds = netease.tracks.map((t) => t.id).toSet();
+    _replaceLibraryTracks([
+      ..._tracks.where((t) => !onlineIds.contains(t.id)),
+      ...netease.tracks,
+    ]);
+    for (final track in netease.tracks) {
+      _trackSourcesByTrackId[track.id] = TrackSourceRecord(
+        trackId: track.id,
+        platform: 'netease',
+        locator: track.filePath,
+      );
+    }
+    _likedTrackIds.removeWhere((id) => id.startsWith('netease:'));
+    _likedTrackIds.addAll(netease.likedIds.where(onlineIds.contains));
+    _primeLyricsStates();
+    _statusMessage = netease.message;
+    await _persistSession();
+    _notifyIfAlive();
+  }
+
+  Future<void> signOutNetease() async {
+    _playbackGeneration++;
+    if (_usesOnlineQueue) await _stopPlayback();
+    await netease.signOut();
+    final ids = _tracks.where((t) => t.isNetease).map((t) => t.id).toSet();
+    if (ids.isNotEmpty) {
+      await _removeTracksFromLibrary(ids, successMessage: '已退出网易云音乐，本地音乐已保留。');
+    }
+    _notifyIfAlive();
   }
 
   final bool _audioEnabled;
@@ -434,9 +478,8 @@ class MusicAppController extends ChangeNotifier {
     return MusicCollection(
       id: 'all_tracks',
       title: 'All Tracks',
-      subtitle: '${tracks.length} imported files',
-      description:
-          'Every local audio file imported into this ChiMusic session.',
+      subtitle: '${tracks.length} 首歌曲',
+      description: '本地音乐与已同步的网易云歌曲。',
       kind: MusicCollectionKind.playlist,
       palette: tracks.isEmpty
           ? const <Color>[
@@ -453,7 +496,7 @@ class MusicAppController extends ChangeNotifier {
   List<MusicCollection> get importedCollections {
     final groupedTracks = <String, List<Track>>{};
 
-    for (final track in _tracks) {
+    for (final track in _tracks.where((t) => !t.isNetease)) {
       groupedTracks.putIfAbsent(track.folderPath, () => <Track>[]).add(track);
     }
 
@@ -497,6 +540,14 @@ class MusicAppController extends ChangeNotifier {
     if (favoriteTracks.isNotEmpty) {
       collections.add(_buildLikedSongsCollection(favoriteTracks));
     }
+    final byId = {for (final t in _tracks) t.id: t};
+    collections.addAll(
+      netease.playlists.map(
+        (p) => p.copyWith(
+          tracks: p.tracks.map((t) => byId[t.id]).whereType<Track>().toList(),
+        ),
+      ),
+    );
     collections.addAll(smartPlaylistCollections);
     return collections;
   }
@@ -982,6 +1033,7 @@ class MusicAppController extends ChangeNotifier {
   }
 
   Future<void> _prepareWaveformForTrack(Track track) async {
+    if (track.isNetease) return;
     await _ensureCacheDirectoriesReady();
     final waveformCacheDirectory = _waveformCacheDirectory;
     if (waveformCacheDirectory == null) {
@@ -1028,6 +1080,7 @@ class MusicAppController extends ChangeNotifier {
   }
 
   Future<ScopedTrackAccess?> _beginTrackAccess(Track track) async {
+    if (track.isNetease) return null;
     final source =
         _trackSourcesByTrackId[track.id] ??
         TrackSourceRecord(
@@ -1167,6 +1220,7 @@ class MusicAppController extends ChangeNotifier {
     try {
       final snapshot = await repository.load();
       _applyRepositorySnapshot(snapshot);
+      unawaited(netease.initialize());
 
       _userProfile = null;
       _hasUnlockedAiUpsell = false;
@@ -1323,7 +1377,9 @@ class MusicAppController extends ChangeNotifier {
 
     final player = _player;
     if (_audioEnabled && player != null) {
-      await player.setLoopMode(_isRepeatEnabled ? LoopMode.all : LoopMode.off);
+      await player.setLoopMode(
+        _isRepeatEnabled && !_usesOnlineQueue ? LoopMode.all : LoopMode.off,
+      );
     }
 
     notifyListeners();
@@ -1633,6 +1689,16 @@ class MusicAppController extends ChangeNotifier {
       return;
     }
 
+    if (_usesOnlineQueue && _audioEnabled && !_onlineSourceLoaded) {
+      await _loadQueue(
+        _queue,
+        initialIndex: _queue.indexWhere((t) => t.id == _currentTrack!.id),
+        collection: _currentCollection ?? allTracksCollection,
+        autoplay: true,
+        startPosition: _position,
+      );
+      return;
+    }
     if (!_audioEnabled || _player == null) {
       _isPlaying = !_isPlaying;
       if (_isPlaying) {
@@ -1676,6 +1742,7 @@ class MusicAppController extends ChangeNotifier {
     MusicCollection collection, {
     Track? startWith,
   }) async {
+    if (collection.tracks.isEmpty) return;
     final initialTrack = startWith ?? collection.tracks.first;
     final initialIndex = collection.tracks.indexWhere(
       (track) => track.id == initialTrack.id,
@@ -1869,7 +1936,9 @@ class MusicAppController extends ChangeNotifier {
       milliseconds: (duration.inMilliseconds * clamped).round(),
     );
 
-    if (!_audioEnabled || _player == null) {
+    if (!_audioEnabled ||
+        _player == null ||
+        (_usesOnlineQueue && !_onlineSourceLoaded)) {
       _position = nextPosition;
       _syncCurrentTrackHistoryPosition(nextPosition);
       _updateActivePlaybackEventProgress(nextPosition);
@@ -1924,6 +1993,15 @@ class MusicAppController extends ChangeNotifier {
       return;
     }
 
+    if (_usesOnlineQueue && _audioEnabled) {
+      await _loadQueue(
+        _queue,
+        initialIndex: nextIndex,
+        collection: _currentCollection ?? allTracksCollection,
+        autoplay: true,
+      );
+      return;
+    }
     if (!_audioEnabled || _player == null) {
       final nextTrack = _queue[nextIndex];
       if (_activePlaybackEventId != null) {
@@ -1979,6 +2057,15 @@ class MusicAppController extends ChangeNotifier {
         ? (_isRepeatEnabled ? _queue.length - 1 : 0)
         : currentIndex - 1;
 
+    if (_usesOnlineQueue && _audioEnabled) {
+      await _loadQueue(
+        _queue,
+        initialIndex: previousIndex,
+        collection: _currentCollection ?? allTracksCollection,
+        autoplay: true,
+      );
+      return;
+    }
     if (!_audioEnabled || _player == null) {
       final previousTrack = _queue[previousIndex];
       if (_activePlaybackEventId != null) {
@@ -2227,6 +2314,16 @@ class MusicAppController extends ChangeNotifier {
       return;
     }
 
+    if (_usesOnlineQueue) {
+      await _loadQueue(
+        _queue,
+        initialIndex: currentIndex,
+        collection: _currentCollection ?? allTracksCollection,
+        autoplay: _isPlaying,
+        startPosition: _position,
+      );
+      return;
+    }
     final player = _player;
     final position = _position;
     final autoplay = _isPlaying;
@@ -2249,7 +2346,9 @@ class MusicAppController extends ChangeNotifier {
         initialIndex: currentIndex,
         initialPosition: position,
       );
-      await player.setLoopMode(_isRepeatEnabled ? LoopMode.all : LoopMode.off);
+      await player.setLoopMode(
+        _isRepeatEnabled && !_usesOnlineQueue ? LoopMode.all : LoopMode.off,
+      );
 
       if (autoplay) {
         await player.play();
@@ -2334,6 +2433,8 @@ class MusicAppController extends ChangeNotifier {
   }
 
   Future<void> _stopPlayback() async {
+    _playbackGeneration++;
+    _onlineSourceLoaded = false;
     if (!_audioEnabled || _player == null) {
       if (_activePlaybackEventId != null) {
         _closeActivePlaybackEvent(
@@ -2502,6 +2603,8 @@ class MusicAppController extends ChangeNotifier {
     bool clearStatusMessage = true,
     Duration startPosition = Duration.zero,
   }) async {
+    final generation = ++_playbackGeneration;
+    _onlineSourceLoaded = false;
     if (tracks.isEmpty) {
       return;
     }
@@ -2543,11 +2646,18 @@ class MusicAppController extends ChangeNotifier {
     }
 
     try {
-      await _refreshQueueFileAccesses(_queue);
-      final sources = _queue
+      await _player.pause();
+      if (generation != _playbackGeneration || _isDisposed) return;
+      final playbackTracks = _usesOnlineQueue ? [currentTrack] : _queue;
+      await _refreshQueueFileAccesses(playbackTracks);
+      final streamUri = currentTrack.isNetease
+          ? await netease.resolveStream(currentTrack)
+          : null;
+      if (generation != _playbackGeneration || _isDisposed) return;
+      final sources = playbackTracks
           .map(
             (track) => AudioSource.uri(
-              Uri.file(track.filePath),
+              track.isNetease ? streamUri! : Uri.file(track.filePath),
               tag: _buildMediaItem(track),
             ),
           )
@@ -2557,26 +2667,51 @@ class MusicAppController extends ChangeNotifier {
 
       await player.setAudioSources(
         sources,
-        initialIndex: _queue.indexWhere((track) => track.id == currentTrack.id),
+        initialIndex: _usesOnlineQueue
+            ? 0
+            : _queue.indexWhere((track) => track.id == currentTrack.id),
         initialPosition: _position,
       );
-      await player.setLoopMode(_isRepeatEnabled ? LoopMode.all : LoopMode.off);
+      if (generation != _playbackGeneration || _isDisposed) return;
+      _onlineSourceLoaded = true;
+      await player.setLoopMode(
+        _isRepeatEnabled && !_usesOnlineQueue ? LoopMode.all : LoopMode.off,
+      );
       await player.setShuffleModeEnabled(false);
 
       _isPreparingPlayback = false;
       notifyListeners();
 
       if (autoplay) {
-        await player.play();
+        unawaited(
+          player.play().catchError((Object error) {
+            if (generation != _playbackGeneration || _isDisposed) return;
+            _isPlaying = false;
+            _onlineSourceLoaded = false;
+            _statusMessage = '播放中断，请重试或检查网络。';
+            _notifyIfAlive();
+          }),
+        );
       } else {
         await player.pause();
       }
-    } on PlayerException {
+    } on NeteaseException catch (error) {
+      if (generation != _playbackGeneration || _isDisposed) return;
+      await _player.pause();
       _isPreparingPlayback = false;
       _isPlaying = false;
-      _statusMessage = 'Unable to play the selected file in this environment.';
+      _statusMessage = error.message;
+      _notifyIfAlive();
+    } on PlayerException {
+      if (generation != _playbackGeneration || _isDisposed) return;
+      _isPreparingPlayback = false;
+      _isPlaying = false;
+      _statusMessage = currentTrack.isNetease
+          ? '在线播放失败，请检查网络后重试。'
+          : 'Unable to play the selected file in this environment.';
       notifyListeners();
     } catch (_) {
+      if (generation != _playbackGeneration || _isDisposed) return;
       _isPreparingPlayback = false;
       _isPlaying = false;
       _statusMessage = 'Playback setup failed. Try importing the file again.';
@@ -2593,6 +2728,7 @@ class MusicAppController extends ChangeNotifier {
 
     _subscriptions.add(
       player.playerStateStream.listen((state) {
+        if (_isPreparingPlayback) return;
         if (state.processingState == ProcessingState.completed) {
           if (_activePlaybackEventId != null) {
             _closeActivePlaybackEvent(
@@ -2601,8 +2737,13 @@ class MusicAppController extends ChangeNotifier {
             );
           }
           _isPlaying = false;
+          if (_usesOnlineQueue) {
+            _onlineSourceLoaded = false;
+            _position = Duration.zero;
+          }
           notifyListeners();
           _persistSession();
+          if (_usesOnlineQueue && canSkipNext) unawaited(skipNext());
           return;
         }
 
@@ -2622,6 +2763,7 @@ class MusicAppController extends ChangeNotifier {
 
     _subscriptions.add(
       player.positionStream.listen((position) {
+        if (_isPreparingPlayback) return;
         _position = position;
         _updateActivePlaybackEventProgress(position);
         notifyListeners();
@@ -2631,6 +2773,7 @@ class MusicAppController extends ChangeNotifier {
 
     _subscriptions.add(
       player.currentIndexStream.listen((index) {
+        if (_usesOnlineQueue || _isPreparingPlayback) return;
         if (index == null || index < 0 || index >= _queue.length) {
           return;
         }
@@ -2658,6 +2801,7 @@ class MusicAppController extends ChangeNotifier {
 
     _subscriptions.add(
       player.durationStream.listen((duration) {
+        if (_isPreparingPlayback) return;
         final currentTrack = _currentTrack;
         if (currentTrack == null || duration == null) {
           return;
@@ -2718,7 +2862,9 @@ class MusicAppController extends ChangeNotifier {
       artist: track.artist,
       genre: track.genre,
       duration: track.duration,
-      artUri: artworkUri != null && path.isAbsolute(artworkUri)
+      artUri: artworkUri != null && artworkUri.startsWith('https://')
+          ? Uri.parse(artworkUri)
+          : artworkUri != null && path.isAbsolute(artworkUri)
           ? Uri.file(artworkUri)
           : null,
       extras: <String, dynamic>{
@@ -2963,6 +3109,7 @@ class MusicAppController extends ChangeNotifier {
     final sourcesNeedingBookmarks = _trackSourcesByTrackId.entries
         .where(
           (entry) =>
+              entry.value.platform != 'netease' &&
               entry.value.locator.isNotEmpty &&
               (entry.value.bookmarkBase64 == null ||
                   entry.value.bookmarkBase64!.isEmpty),
@@ -3033,8 +3180,9 @@ class MusicAppController extends ChangeNotifier {
     unawaited(loadLyricsForTrack(currentTrack));
     unawaited(_prepareWaveformForTrack(currentTrack));
 
-    if (!_audioEnabled || _player == null) {
+    if (!_audioEnabled || _player == null || _usesOnlineQueue) {
       _isPreparingPlayback = false;
+      _onlineSourceLoaded = false;
       return;
     }
 
@@ -3048,7 +3196,12 @@ class MusicAppController extends ChangeNotifier {
       }
 
       final sources = restoredQueue
-          .map((track) => AudioSource.uri(Uri.file(track.filePath), tag: track))
+          .map(
+            (track) => AudioSource.uri(
+              Uri.file(track.filePath),
+              tag: _buildMediaItem(track),
+            ),
+          )
           .toList(growable: false);
 
       final player = _player;
@@ -3066,7 +3219,9 @@ class MusicAppController extends ChangeNotifier {
           _position,
         ),
       );
-      await player.setLoopMode(_isRepeatEnabled ? LoopMode.all : LoopMode.off);
+      await player.setLoopMode(
+        _isRepeatEnabled && !_usesOnlineQueue ? LoopMode.all : LoopMode.off,
+      );
       await player.setShuffleModeEnabled(false);
       await player.pause();
       _isPreparingPlayback = false;
@@ -3332,9 +3487,12 @@ class MusicAppController extends ChangeNotifier {
     }
 
     final enrichedTracks = await _metadataEnrichmentService.enrichTracks(
-      _tracks,
+      _tracks.where((t) => !t.isNetease).toList(),
     );
-    _replaceLibraryTracks(enrichedTracks);
+    _replaceLibraryTracks([
+      ...enrichedTracks,
+      ..._tracks.where((t) => t.isNetease),
+    ]);
     _primeLyricsStates();
     await _refreshRecommendationContent();
     _isEnhancingLibrary = false;
@@ -3471,6 +3629,9 @@ class MusicAppController extends ChangeNotifier {
   @override
   void dispose() {
     _isDisposed = true;
+    _playbackGeneration++;
+    netease.removeListener(_notifyIfAlive);
+    netease.dispose();
     if (_activePlaybackEventId != null) {
       _closeActivePlaybackEvent(
         reason: PlaybackEndReason.stopped,

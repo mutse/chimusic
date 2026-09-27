@@ -30,3 +30,7 @@ $ flutter test
 - iOS bundle id: `app.chimusic.player`
 - macOS bundle id: `app.chimusic.player.macos`
 - Apple release artifacts are still packaged unsigned by default. For TestFlight, App Store, or notarized macOS distribution, add your production signing assets first.
+
+## 网易云音乐
+
+支持扫码登录、同步喜欢和歌单、在线播放。在设置中直接扫码登录，无需配置或部署 API 服务，详见 [接入与使用说明](docs/netease-music.md)。

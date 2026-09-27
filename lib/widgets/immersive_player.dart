@@ -33,6 +33,13 @@ class PlayerArtwork extends StatelessWidget {
     if (uri.startsWith('assets/')) {
       return Image.asset(uri, fit: fit, errorBuilder: (_, _, _) => fallback());
     }
+    if (uri.startsWith('https://') || uri.startsWith('http://')) {
+      return Image.network(
+        uri,
+        fit: fit,
+        errorBuilder: (_, _, _) => fallback(),
+      );
+    }
     if (!kIsWeb) {
       final path = uri.startsWith('file:') ? Uri.parse(uri).toFilePath() : uri;
       return Image.file(

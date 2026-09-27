@@ -10,6 +10,8 @@ import '../models/music_models.dart';
 import '../state/chimusic_controller.dart';
 import '../state/chimusic_scope.dart';
 import 'sono_design.dart';
+import 'netease_account_panel.dart';
+import 'netease_playlist_strip.dart';
 import 'immersive_player.dart';
 
 /// Bottom-nav destinations for the mobile shell. Local to this file — the
@@ -910,6 +912,10 @@ class _LibraryPage extends StatelessWidget {
           controller: controller,
           tag: '${tracks.length}',
         ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: NeteasePlaylistStrip(controller: controller),
+        ),
         // Search field
         Container(
           margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
@@ -1478,6 +1484,10 @@ class _SettingsPage extends StatelessWidget {
     return ListView(
       padding: EdgeInsets.only(bottom: bottomPad),
       children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+          child: NeteaseAccountPanel(controller: controller),
+        ),
         // Local settings summary
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),

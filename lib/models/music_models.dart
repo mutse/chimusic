@@ -169,7 +169,11 @@ class Track {
   final DateTime? lastSyncedAt;
   final List<String> credits;
 
-  String get typeLabel => (fileExtension == null || fileExtension!.isEmpty)
+  bool get isNetease => filePath.startsWith('netease://');
+
+  String get typeLabel => isNetease
+      ? '网易云音乐'
+      : (fileExtension == null || fileExtension!.isEmpty)
       ? 'Local Audio'
       : fileExtension!.toUpperCase();
 

@@ -79,8 +79,8 @@ class LiquidBackdrop extends StatelessWidget {
               child: IgnorePointer(
                 child: Opacity(
                   opacity: 0.18,
-                  child: Image.file(
-                    File(artworkUri!),
+                  child: Image(
+                    image: _artworkProvider(artworkUri!),
                     fit: BoxFit.cover,
                     errorBuilder: (_, _, _) => const SizedBox.shrink(),
                   ),
@@ -526,8 +526,8 @@ class ArtworkCover extends StatelessWidget {
           children: [
             if (!kIsWeb && artworkUri != null && artworkUri!.isNotEmpty)
               Positioned.fill(
-                child: Image.file(
-                  File(artworkUri!),
+                child: Image(
+                  image: _artworkProvider(artworkUri!),
                   fit: BoxFit.cover,
                   errorBuilder: (_, _, _) => const SizedBox.shrink(),
                 ),
@@ -805,4 +805,11 @@ class TrackRow extends StatelessWidget {
       ),
     );
   }
+}
+
+ImageProvider _artworkProvider(String uri) {
+  if (uri.startsWith('https://') || uri.startsWith('http://')) {
+    return NetworkImage(uri);
+  }
+  return FileImage(File(uri));
 }
