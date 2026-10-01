@@ -10,6 +10,9 @@ import '../models/music_models.dart';
 import '../state/chimusic_controller.dart';
 import '../state/chimusic_scope.dart';
 import 'sono_design.dart';
+import 'netease_account_panel.dart';
+import 'netease_playlist_strip.dart';
+import 'immersive_player.dart';
 
 /// Bottom-nav destinations for the mobile shell. Local to this file — the
 /// shared [MusicTab] enum only models home/search/library and is used by the
@@ -210,7 +213,7 @@ class _MobilePlayerShellState extends State<MobilePlayerShell> {
       useSafeArea: true,
       backgroundColor: Colors.transparent,
       barrierColor: Colors.black.withValues(alpha: 0.6),
-      builder: (_) => const _NowPlayingSheet(),
+      builder: (_) => const ImmersivePlayer(),
     );
   }
 
@@ -909,6 +912,10 @@ class _LibraryPage extends StatelessWidget {
           controller: controller,
           tag: '${tracks.length}',
         ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: NeteasePlaylistStrip(controller: controller),
+        ),
         // Search field
         Container(
           margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
@@ -1349,7 +1356,7 @@ class _HistoryPage extends StatelessWidget {
                     playing:
                         controller.currentTrack?.id == track.id &&
                         controller.isPlaying,
-                    onTap: () => controller.playTrack(
+                    onTap: () => controller.resumeTrack(
                       track,
                       collection: controller.collectionForTrack(track),
                     ),
@@ -1477,6 +1484,10 @@ class _SettingsPage extends StatelessWidget {
     return ListView(
       padding: EdgeInsets.only(bottom: bottomPad),
       children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+          child: NeteaseAccountPanel(controller: controller),
+        ),
         // Local settings summary
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
@@ -1520,9 +1531,7 @@ class _SettingsPage extends StatelessWidget {
               : Icons.light_mode_rounded,
           iconAccent: true,
           label: SonoPalette.isLight ? '浅色主题' : '深色主题',
-          subtitle: SonoPalette.isLight
-              ? '米白 #F2EDE1 + 藕荷 #C07A92'
-              : '曜黑 #0A0A0B + 暖金 #C9A96E',
+          subtitle: SonoPalette.isLight ? '唱片日记 · 米白与暖棕' : '深海回声 · 海蓝与薄荷',
           trailing: _ToggleSwitch(
             value: SonoPalette.isLight,
             onTap: controller.toggleThemeMode,
@@ -1940,492 +1949,6 @@ class _Toast extends StatelessWidget {
         message,
         textAlign: TextAlign.center,
         style: SonoText.body.copyWith(fontSize: 13),
-      ),
-    );
-  }
-}
-
-// ════════════════════════════════════════════════════════════════
-// NOW PLAYING SHEET
-// ════════════════════════════════════════════════════════════════
-
-class _NowPlayingSheet extends StatefulWidget {
-  const _NowPlayingSheet();
-
-  @override
-  State<_NowPlayingSheet> createState() => _NowPlayingSheetState();
-}
-
-class _NowPlayingSheetState extends State<_NowPlayingSheet>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _float;
-
-  @override
-  void initState() {
-    super.initState();
-    _float = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 4),
-    )..repeat(reverse: true);
-  }
-
-  @override
-  void dispose() {
-    _float.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final controller = ChiMusicScope.watch(context);
-    final track = controller.currentTrack;
-
-    if (track == null) {
-      // Track was removed/cleared while open — dismiss on the next frame.
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          Navigator.of(context).maybePop();
-        }
-      });
-      return const SizedBox.shrink();
-    }
-
-    final liked = controller.isTrackLiked(track.id);
-    final artSize = (MediaQuery.sizeOf(context).width * 0.72).clamp(
-      160.0,
-      280.0,
-    );
-    final upNext = controller.upNext;
-
-    return FractionallySizedBox(
-      heightFactor: 0.96,
-      child: Container(
-        decoration: BoxDecoration(
-          color: SonoPalette.sheetBg,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
-        ),
-        child: Column(
-          children: [
-            // Handle
-            Container(
-              width: 36,
-              height: 4,
-              margin: const EdgeInsets.only(top: 12),
-              decoration: BoxDecoration(
-                color: SonoPalette.bg4,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            // Header
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 16, 24, 12),
-              child: Row(
-                children: [
-                  Text('正在播放', style: SonoText.overline),
-                  const Spacer(),
-                  _CircleIconButton(
-                    icon: Icons.close_rounded,
-                    size: 32,
-                    iconSize: 16,
-                    onTap: () => Navigator.of(context).maybePop(),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(28, 8, 28, 40),
-                children: [
-                  // Artwork
-                  Center(
-                    child: AnimatedBuilder(
-                      animation: _float,
-                      builder: (context, child) {
-                        final offset = controller.isPlaying
-                            ? (_float.value - 0.5) * 12
-                            : 0.0;
-                        return Transform.translate(
-                          offset: Offset(0, offset),
-                          child: child,
-                        );
-                      },
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(20),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.4),
-                              blurRadius: 48,
-                              offset: const Offset(0, 24),
-                            ),
-                          ],
-                        ),
-                        child: SonoArtwork(
-                          track: track,
-                          size: artSize.toDouble(),
-                          radius: BorderRadius.circular(20),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 28),
-                  // Title + like
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              track.title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: SonoText.npTitle,
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              track.artist,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: SonoText.body.copyWith(
-                                color: SonoPalette.textMuted,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      _CircleIconButton(
-                        icon: liked
-                            ? Icons.favorite_rounded
-                            : Icons.favorite_border_rounded,
-                        size: 40,
-                        iconSize: 20,
-                        foreground: liked
-                            ? SonoPalette.accent
-                            : SonoPalette.textMuted,
-                        onTap: () => controller.toggleLikedTrack(track.id),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  // Seek bar
-                  _SeekBar(
-                    progress: controller.playbackProgress,
-                    onSeek: controller.seekToFraction,
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        formatDuration(
-                          controller.position,
-                          placeholder: '0:00',
-                        ),
-                        style: SonoText.mono.copyWith(
-                          color: SonoPalette.textFaint,
-                        ),
-                      ),
-                      Text(
-                        formatDuration(track.duration, placeholder: '0:00'),
-                        style: SonoText.mono.copyWith(
-                          color: SonoPalette.textFaint,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  // Transport
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      _TransportButton(
-                        icon: Icons.shuffle_rounded,
-                        active: controller.isShuffleEnabled,
-                        size: 22,
-                        onTap: controller.toggleShuffle,
-                      ),
-                      _TransportButton(
-                        icon: Icons.skip_previous_rounded,
-                        size: 28,
-                        onTap: controller.skipPrevious,
-                      ),
-                      _PlayButton(
-                        playing: controller.isPlaying,
-                        onTap: controller.togglePlayPause,
-                      ),
-                      _TransportButton(
-                        icon: Icons.skip_next_rounded,
-                        size: 28,
-                        onTap: controller.skipNext,
-                      ),
-                      _TransportButton(
-                        icon: Icons.repeat_rounded,
-                        active: controller.isRepeatEnabled,
-                        size: 22,
-                        onTap: controller.toggleRepeat,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  // Volume
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.volume_down_rounded,
-                        size: 18,
-                        color: SonoPalette.textFaint,
-                      ),
-                      Expanded(
-                        child: SliderTheme(
-                          data: SliderThemeData(
-                            trackHeight: 4,
-                            activeTrackColor: SonoPalette.accent,
-                            inactiveTrackColor: SonoPalette.bg4,
-                            thumbColor: SonoPalette.textPrimary,
-                            overlayColor: SonoPalette.accent.withValues(
-                              alpha: 0.16,
-                            ),
-                            thumbShape: const RoundSliderThumbShape(
-                              enabledThumbRadius: 8,
-                            ),
-                          ),
-                          child: Slider(
-                            value: controller.volume.clamp(0.0, 1.0),
-                            onChanged: controller.setVolume,
-                          ),
-                        ),
-                      ),
-                      Icon(
-                        Icons.volume_up_rounded,
-                        size: 18,
-                        color: SonoPalette.textFaint,
-                      ),
-                    ],
-                  ),
-                  if (upNext.isNotEmpty) ...[
-                    const SizedBox(height: 20),
-                    _UpNextPeek(
-                      track: upNext.first,
-                      onTap: () {
-                        controller.playTrack(
-                          upNext.first,
-                          collection: controller.collectionForTrack(
-                            upNext.first,
-                          ),
-                        );
-                      },
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SeekBar extends StatelessWidget {
-  const _SeekBar({required this.progress, required this.onSeek});
-
-  final double progress;
-  final ValueChanged<double> onSeek;
-
-  @override
-  Widget build(BuildContext context) {
-    final clamped = progress.clamp(0.0, 1.0).toDouble();
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final width = constraints.maxWidth <= 0 ? 1.0 : constraints.maxWidth;
-        void seek(Offset local) => onSeek((local.dx / width).clamp(0.0, 1.0));
-
-        final fillWidth = width * clamped;
-        final maxLeft = (width - 14).clamp(0.0, double.infinity);
-        final thumbLeft = (fillWidth - 7).clamp(0.0, maxLeft).toDouble();
-
-        return GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTapDown: (details) => seek(details.localPosition),
-          onHorizontalDragUpdate: (details) => seek(details.localPosition),
-          child: SizedBox(
-            height: 18,
-            width: double.infinity,
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  top: 7,
-                  child: Container(
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: SonoPalette.bg4,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  left: 0,
-                  top: 7,
-                  child: Container(
-                    width: fillWidth,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [SonoPalette.accent, SonoPalette.accentSoft],
-                      ),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  left: thumbLeft,
-                  top: 2,
-                  child: Container(
-                    width: 14,
-                    height: 14,
-                    decoration: BoxDecoration(
-                      color: SonoPalette.textPrimary,
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.3),
-                          blurRadius: 4,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _TransportButton extends StatelessWidget {
-  const _TransportButton({
-    required this.icon,
-    required this.onTap,
-    this.size = 24,
-    this.active = false,
-  });
-
-  final IconData icon;
-  final VoidCallback onTap;
-  final double size;
-  final bool active;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      shape: const CircleBorder(),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: SizedBox(
-          width: 52,
-          height: 52,
-          child: Icon(
-            icon,
-            size: size,
-            color: active ? SonoPalette.accent : SonoPalette.textMuted,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _PlayButton extends StatelessWidget {
-  const _PlayButton({required this.playing, required this.onTap});
-
-  final bool playing;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: SonoPalette.accent,
-      shape: const CircleBorder(),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: SizedBox(
-          width: 68,
-          height: 68,
-          child: Icon(
-            playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
-            size: 30,
-            color: SonoPalette.cardPlayInk,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _UpNextPeek extends StatelessWidget {
-  const _UpNextPeek({required this.track, required this.onTap});
-
-  final Track track;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: SonoPalette.bg2,
-      borderRadius: BorderRadius.circular(14),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: SonoPalette.border),
-          ),
-          child: Row(
-            children: [
-              SonoArtwork(
-                track: track,
-                size: 36,
-                radius: BorderRadius.circular(8),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text('接下来', style: SonoText.overline),
-                    const SizedBox(height: 3),
-                    Text(
-                      track.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: SonoText.small.copyWith(
-                        color: SonoPalette.textMuted,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Icon(
-                Icons.chevron_right_rounded,
-                size: 18,
-                color: SonoPalette.textFaint,
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

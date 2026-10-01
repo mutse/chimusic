@@ -1,0 +1,47 @@
+<h2>Approved Direction: Local NetEase-Style Music App</h2>
+<p class="subtitle">Architecture and product boundaries for the first implementation spec.</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">Keep and strengthen</div>
+    <div class="mockup-body">
+      <div class="placeholder" style="height:44px">Local audio import</div>
+      <div class="placeholder" style="height:44px;margin-top:8px">Playback queue + mini player + full player</div>
+      <div class="placeholder" style="height:44px;margin-top:8px">Search tracks, albums, artists, folders</div>
+      <div class="placeholder" style="height:44px;margin-top:8px">Favorites and saved local collections</div>
+      <div class="placeholder" style="height:44px;margin-top:8px">Playback history, resume positions, play counts</div>
+      <div class="placeholder" style="height:44px;margin-top:8px">Local discovery: daily mix, recent, albums, artists</div>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">Remove from first version</div>
+    <div class="mockup-body">
+      <div class="placeholder" style="height:44px">Registration / login / profile identity</div>
+      <div class="placeholder" style="height:44px;margin-top:8px">Cloud sync and cloud restore</div>
+      <div class="placeholder" style="height:44px;margin-top:8px">Membership / Pro / subscription upsells</div>
+      <div class="placeholder" style="height:44px;margin-top:8px">AI search quota and upgrade prompts</div>
+      <div class="placeholder" style="height:44px;margin-top:8px">Comments, follows, social feed, community</div>
+      <div class="placeholder" style="height:44px;margin-top:8px">Any fake unavailable network-only entry</div>
+    </div>
+  </div>
+</div>
+
+<div class="mockup">
+  <div class="mockup-header">Core data flow</div>
+  <div class="mockup-body">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;text-align:center">
+      <div class="placeholder" style="height:76px">Import files / folders</div>
+      <div class="placeholder" style="height:76px">Parse metadata + artwork + duration</div>
+      <div class="placeholder" style="height:76px">Save SQLite + JSON snapshot</div>
+      <div class="placeholder" style="height:76px">Browse local discovery</div>
+      <div class="placeholder" style="height:76px">Play / like / save / seek</div>
+      <div class="placeholder" style="height:76px">Persist history locally</div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Boundary rule</h3>
+  <p>Every visible first-version feature must work without a user account, without internet, and without cloud state. If a feature cannot meet that rule, it is removed from navigation and settings for this release.</p>
+</div>

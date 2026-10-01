@@ -1,0 +1,75 @@
+<h2>ChiMusic: NetEase Cloud Music Core Clone Scope</h2>
+<p class="subtitle">The current Flutter app already has local import, playback, search, library, history, and some account/cloud/AI prototype surfaces. This screen narrows the target before implementation.</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">A. Local NetEase-Style Player</div>
+        <div class="mockup-body">
+          <div class="mock-nav">Discover | Search | Library</div>
+          <div style="display:grid;grid-template-columns:1.2fr .8fr;gap:14px;margin-top:12px">
+            <div>
+              <div class="placeholder" style="height:86px">Daily recommendations from local library</div>
+              <div class="placeholder" style="height:52px;margin-top:10px">Recently played</div>
+              <div class="placeholder" style="height:52px;margin-top:10px">My playlists / albums</div>
+            </div>
+            <div>
+              <div class="placeholder" style="height:148px">Now playing card</div>
+              <button class="mock-button" style="margin-top:10px">Import Music</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A. Recommended: Local NetEase-Style Player</h3>
+      <p>Remove account, Pro, AI upsell, and cloud sync from the visible product. Keep local import, library, search, favorites, queue, lyrics/waveform where available, local playback history, and NetEase-like discovery sections generated from local data.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">B. Heavy NetEase Replica Shell</div>
+        <div class="mockup-body">
+          <div class="mock-nav">Discover | Podcast | Video | Community | Library</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px">
+            <div class="placeholder" style="height:76px">Banners</div>
+            <div class="placeholder" style="height:76px">Rankings</div>
+            <div class="placeholder" style="height:76px">Radio</div>
+            <div class="placeholder" style="height:76px">Comments</div>
+            <div class="placeholder" style="height:76px">Videos</div>
+            <div class="placeholder" style="height:76px">Social feed</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B. Broad Replica Surface</h3>
+      <p>Visually mimic more NetEase sections, including rankings, podcasts, community, comments, and video-like areas. Richer first impression, but many features would be static or fake without accounts and network services.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">C. Minimal Playback Utility</div>
+        <div class="mockup-body">
+          <div class="mock-nav">Library | Search</div>
+          <div class="placeholder" style="height:150px;margin-top:12px">Track table and mini player only</div>
+          <button class="mock-button" style="margin-top:10px">Play All</button>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C. Minimal Local Player</h3>
+      <p>Focus on stable playback and local history, with much less discovery UI. Fastest to complete, but it will feel less like NetEase Cloud Music.</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>My recommendation</h3>
+  <p>Choose A. It matches your constraints: no registration, no login, no cloud sync, and playback history stored locally. It also gives enough NetEase-like personality without building empty social or streaming surfaces.</p>
+</div>

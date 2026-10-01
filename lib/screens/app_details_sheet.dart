@@ -4,6 +4,7 @@ import '../app/chimusic_theme.dart';
 import '../data/local_audio_importer.dart';
 import '../state/chimusic_scope.dart';
 import '../widgets/glass.dart';
+import '../widgets/netease_account_panel.dart';
 
 class AppDetailsSheet extends StatelessWidget {
   const AppDetailsSheet({super.key});
@@ -43,7 +44,7 @@ class AppDetailsSheet extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '本地音乐设置',
+                          '音乐设置',
                           style: Theme.of(context).textTheme.headlineSmall,
                         ),
                         const SizedBox(height: 4),
@@ -64,6 +65,8 @@ class AppDetailsSheet extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 22),
+              NeteaseAccountPanel(controller: controller),
+              const SizedBox(height: 18),
               GlassPanel(
                 padding: const EdgeInsets.all(18),
                 borderRadius: BorderRadius.circular(30),

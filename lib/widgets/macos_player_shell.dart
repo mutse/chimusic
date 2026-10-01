@@ -1,3 +1,4 @@
+import 'netease_playlist_strip.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -900,6 +901,7 @@ class _DesktopLibraryPage extends StatelessWidget {
               ],
             ),
           ),
+          NeteasePlaylistStrip(controller: controller),
           const SizedBox(height: 18),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),

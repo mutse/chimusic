@@ -1,0 +1,66 @@
+<h2>Data Flow, Error Handling, and Verification</h2>
+<p class="subtitle">The implementation should make local playback reliable first, then reshape the product surface around that reliability.</p>
+
+<div class="mockup">
+  <div class="mockup-header">Local-only runtime flow</div>
+  <div class="mockup-body">
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;text-align:center">
+      <div class="placeholder" style="height:78px">User imports files / folders</div>
+      <div class="placeholder" style="height:78px">Importer reads metadata and artwork</div>
+      <div class="placeholder" style="height:78px">Controller builds local collections</div>
+      <div class="placeholder" style="height:78px">Repository persists snapshot locally</div>
+      <div class="placeholder" style="height:78px">User searches / browses / plays</div>
+      <div class="placeholder" style="height:78px">Player updates queue and position</div>
+      <div class="placeholder" style="height:78px">History records play count and resume</div>
+      <div class="placeholder" style="height:78px">Discover refreshes from local signals</div>
+    </div>
+  </div>
+</div>
+
+<div class="cards">
+  <div class="card">
+    <div class="card-body">
+      <h3>State cleanup</h3>
+      <p>Stop restoring users or remote snapshots. Remove visible use of auth, cloud sync, subscription, Pro, and AI quota state. Keep repository compatibility only where needed to avoid breaking existing saved data.</p>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-body">
+      <h3>Error handling</h3>
+      <p>Import errors, missing files, failed playback preparation, unavailable tracks, and failed metadata reads become local status messages with recovery actions: retry import, relink file, remove missing track, or continue browsing.</p>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-body">
+      <h3>Persistence</h3>
+      <p>Playback history, recent searches, likes, saved local collections, queue, current track, position, shuffle, repeat, and theme continue to persist locally through SQLite and the JSON snapshot fallback.</p>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-body">
+      <h3>Verification</h3>
+      <p>Controller tests cover local search, library filters, queue playback, history persistence, restore behavior without users, and absence of cloud/auth actions. Widget tests cover no login/cloud/Pro text in the primary shell.</p>
+    </div>
+  </div>
+</div>
+
+<div class="pros-cons">
+  <div class="pros">
+    <h4>Acceptance checks</h4>
+    <ul>
+      <li>Fresh install shows import-first local music onboarding.</li>
+      <li>Imported music creates Discover, Search, Library, and Player content.</li>
+      <li>Playback history survives restart locally.</li>
+      <li>No visible sign-in, cloud sync, membership, Pro, AI quota, comments, follows, or social feed.</li>
+    </ul>
+  </div>
+  <div class="cons">
+    <h4>Deferred</h4>
+    <ul>
+      <li>Network streaming catalog.</li>
+      <li>Account-based social features.</li>
+      <li>Cloud backup or cross-device sync.</li>
+      <li>Deep deletion of all legacy model fields if that risks migration churn.</li>
+    </ul>
+  </div>
+</div>
