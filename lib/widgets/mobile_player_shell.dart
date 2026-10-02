@@ -1484,10 +1484,6 @@ class _SettingsPage extends StatelessWidget {
     return ListView(
       padding: EdgeInsets.only(bottom: bottomPad),
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-          child: NeteaseAccountPanel(controller: controller),
-        ),
         // Local settings summary
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
@@ -1539,6 +1535,10 @@ class _SettingsPage extends StatelessWidget {
           onTap: controller.toggleThemeMode,
         ),
         const _SettingsSection('音乐'),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+          child: NeteaseAccountPanel(controller: controller),
+        ),
         _SettingsRow(
           icon: Icons.upload_rounded,
           iconAccent: true,
